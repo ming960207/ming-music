@@ -1061,6 +1061,7 @@ private fun AppearanceFeatureSettings(
 ) {
     val settings = state.settings
     val enabled = !state.isBusy
+    val uriHandler = LocalUriHandler.current
     SettingsGroup(title = "主题") {
         SettingsChoiceRow(
             title = "主题模式",
@@ -1106,7 +1107,7 @@ private fun AppearanceFeatureSettings(
             title = "悬浮歌词",
             supportingText = "在其他应用上层显示同步歌词和播放控制；悬浮框可直接 × 关闭",
             enabled = enabled,
-            onClick = { LocalUriHandler.current.openUri("mingmusic://floating-lyrics") },
+            onClick = { uriHandler.openUri("mingmusic://floating-lyrics") },
         )
         if (state.statusBarLyricsAvailable) {
             SettingsDivider(startPadding = FuoSpacing.lg)
