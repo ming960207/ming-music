@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v0.1.0-alpha.4'
+      - 'v0.1.0-alpha.5'
     branches:
       - main
     paths:
-      - '.release-alpha4'
+      - '.release-alpha5'
 
 permissions:
   contents: write
@@ -29,8 +29,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify Android build
         env:
-          MING_VERSION_NAME: 0.1.0-alpha.4
-          MING_VERSION_CODE: 100004
+          MING_VERSION_NAME: 0.1.0-alpha.5
+          MING_VERSION_CODE: 100005
         run: ./gradlew :androidApp:assembleDebug --stacktrace
 
       - name: Verify updater points only to Ming Music GitHub
@@ -39,34 +39,34 @@ jobs:
           grep -q "api.github.com/repos/ming960207/ming-music/releases" androidApp/src/main/kotlin/org/feeluown/mobile/update/AndroidAppUpdateController.kt
       - name: Prepare APK and GitHub update manifest
         run: |
-          cp androidApp/build/outputs/apk/debug/*.apk MingMusic-0.1.0-alpha.4.apk
-          sha256sum MingMusic-0.1.0-alpha.4.apk > MingMusic-0.1.0-alpha.4.apk.sha256
+          cp androidApp/build/outputs/apk/debug/*.apk MingMusic-0.1.0-alpha.5.apk
+          sha256sum MingMusic-0.1.0-alpha.5.apk > MingMusic-0.1.0-alpha.5.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.4" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.5" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-0.1.0-alpha.4.apk \
+            MingMusic-0.1.0-alpha.5.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.4/MingMusic-0.1.0-alpha.4.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.5/MingMusic-0.1.0-alpha.5.apk"
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.1.0-alpha.4 >/dev/null 2>&1; then
-            gh release upload v0.1.0-alpha.4 \
-              MingMusic-0.1.0-alpha.4.apk \
-              MingMusic-0.1.0-alpha.4.apk.sha256 \
+          if gh release view v0.1.0-alpha.5 >/dev/null 2>&1; then
+            gh release upload v0.1.0-alpha.5 \
+              MingMusic-0.1.0-alpha.5.apk \
+              MingMusic-0.1.0-alpha.5.apk.sha256 \
               ming-music-update.json \
               --clobber
             exit 0
           fi
-          gh release create v0.1.0-alpha.4 \
-            MingMusic-0.1.0-alpha.4.apk \
-            MingMusic-0.1.0-alpha.4.apk.sha256 \
+          gh release create v0.1.0-alpha.5 \
+            MingMusic-0.1.0-alpha.5.apk \
+            MingMusic-0.1.0-alpha.5.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Ming Music 0.1.0 Alpha 4" \
-            --notes "Ming Music Alpha 4。更新软件图标并修复 Android versionName/versionCode 迭代；包含 FuoEvolve 播放基线、Ming Music 品牌迁移初版、悬浮歌词（拖动、同步歌词、上一首/播放暂停/下一首、直接关闭）及悬浮窗权限入口。此版本为 Alpha，在线音乐可播放性受各 Provider 授权、地区和服务状态影响。"
+            --title "Ming Music 0.1.0 Alpha 5" \
+            --notes "Ming Music Alpha 5。悬浮歌词默认透明背景，新增锁定与字体颜色切换，并继续修复品牌图标显示；保持原 applicationId 以延续升级兼容路径。此版本为 Alpha。"
