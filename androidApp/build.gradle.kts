@@ -33,18 +33,16 @@ val ciReleaseVersionName = if (githubRefType == "tag") {
 } else {
     null
 }
-val gitVersionName = ciReleaseVersionName
-    ?: gitOutput("describe", "--tags", "--match", "[0-9]*", "--always", "--dirty")
-    ?: "0.1.0"
-// versionCode tracks master commit count at the branch point so feature-branch
-// commits do not bump it (avoids install conflicts across branches).
-val gitVersionCodeBase = sequenceOf("master", "origin/master")
-    .mapNotNull { ref -> gitOutput("merge-base", "HEAD", ref) }
-    .firstOrNull()
-    ?: "HEAD"
-val gitVersionCode = gitOutput("rev-list", "--count", gitVersionCodeBase)
+val mingVersionName = providers.environmentVariable("MING_VERSION_NAME").orNull
+    ?.takeIf { it.isNotBlank() }
+val mingVersionCode = providers.environmentVariable("MING_VERSION_CODE").orNull
     ?.toIntOrNull()
-    ?.takeIf { it > 0 }
+val gitVersionName = mingVersionName
+    ?: ciReleaseVersionName
+    ?: gitOutput("describe", "--tags", "--match", "[0-9]*", "--always", "--dirty")
+    ?: "0.1.0-alpha.2"
+val gitVersionCode = mingVersionCode
+    ?: gitOutput("rev-list", "--count", "HEAD")?.toIntOrNull()?.takeIf { it > 0 }
     ?: 1
 val fuoSigningStoreFile = signingValue("FUO_SIGNING_STORE_FILE", "fuo.signing.storeFile")
 val fuoSigningStorePassword = signingValue("FUO_SIGNING_STORE_PASSWORD", "fuo.signing.storePassword")
