@@ -297,7 +297,7 @@ private fun SettingsMainPage(
     desktopVideoSettingsAvailable: Boolean,
 ) {
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Color.Transparent,
         topBar = {
             if (useWideLayout) {
                 TopAppBar(
@@ -331,7 +331,7 @@ private fun SettingsMainPage(
                     )
                     Surface(
                         modifier = Modifier.weight(1f).fillMaxSize(),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.78f),
                         shape = MaterialTheme.shapes.extraLarge,
                     ) {
                         SettingsCategoryDetail(
@@ -408,7 +408,7 @@ private fun SettingsScaffold(
     content: @Composable (Modifier) -> Unit,
 ) {
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -434,7 +434,7 @@ private fun SettingsBackButton(onBack: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun settingsTopAppBarColors() = TopAppBarDefaults.topAppBarColors(
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = Color.Transparent,
 )
 
 @Composable
