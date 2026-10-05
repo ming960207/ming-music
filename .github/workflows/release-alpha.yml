@@ -24,10 +24,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify Android build
         run: ./gradlew :androidApp:assembleDebug --stacktrace
-      - name: Prepare APK
+      - name: Prepare APK and GitHub update manifest
         run: |
           cp androidApp/build/outputs/apk/debug/*.apk MingMusic-0.1.0-alpha.1.apk
           sha256sum MingMusic-0.1.0-alpha.1.apk > MingMusic-0.1.0-alpha.1.apk.sha256
+          chmod +x scripts/write-update-manifest.sh
+          COMMIT_SHA="$GITHUB_SHA" \
+          WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.1" \
+          scripts/write-update-manifest.sh \
+            canary \
+            MingMusic-0.1.0-alpha.1.apk \
+            ming-music-update.json \
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.1/MingMusic-0.1.0-alpha.1.apk"
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,6 +48,7 @@ jobs:
           gh release create v0.1.0-alpha.1 \
             MingMusic-0.1.0-alpha.1.apk \
             MingMusic-0.1.0-alpha.1.apk.sha256 \
+            ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Ming Music 0.1.0 Alpha 1" \
