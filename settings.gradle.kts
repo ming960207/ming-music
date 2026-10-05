@@ -32,7 +32,7 @@ gradle.beforeProject {
     }
 }
 
-rootProject.name = "FuoEvolve"
+rootProject.name = "MingMusic"
 
 include(":core:model")
 include(":feature:recognition")
