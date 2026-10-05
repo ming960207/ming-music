@@ -14,9 +14,6 @@ import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.feeluown.mobile.playback.api.PlaybackSession
 import org.feeluown.mobile.playback.api.PlaybackSessionStatus
@@ -30,7 +27,6 @@ import org.feeluown.mobile.playback.api.PlaybackSessionStatus
 internal class FloatingLyricsOverlay(
     context: Context,
     private val playbackSession: PlaybackSession,
-    private val enabled: Flow<Boolean>,
     private val scope: CoroutineScope,
 ) {
     private val appContext = context.applicationContext
@@ -46,15 +42,17 @@ internal class FloatingLyricsOverlay(
     fun start() {
         if (collectJob != null) return
         collectJob = scope.launch {
-            combine(playbackSession.state, enabled.distinctUntilChanged()) { state, setting ->
-                Snapshot(
-                    enabled = setting,
-                    status = state.status,
-                    positionMs = state.lyricsPositionMs,
-                    durationMs = state.durationMs,
-                    lyrics = state.lyrics,
+            playbackSession.state.collect { state ->
+                render(
+                    Snapshot(
+                        enabled = true,
+                        status = state.status,
+                        positionMs = state.lyricsPositionMs,
+                        durationMs = state.durationMs,
+                        lyrics = state.lyrics,
+                    ),
                 )
-            }.collect(::render)
+            }
         }
     }
 
