@@ -24,8 +24,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify Android build
         env:
-          MING_VERSION_NAME: 0.1.0-alpha.2
-          MING_VERSION_CODE: 100002
+          MING_VERSION_NAME: 0.1.0-alpha.3
+          MING_VERSION_CODE: 100003
         run: ./gradlew :androidApp:assembleDebug --stacktrace
 
       - name: Verify updater points only to Ming Music GitHub
@@ -34,34 +34,34 @@ jobs:
           grep -q "api.github.com/repos/ming960207/ming-music/releases" androidApp/src/main/kotlin/org/feeluown/mobile/update/AndroidAppUpdateController.kt
       - name: Prepare APK and GitHub update manifest
         run: |
-          cp androidApp/build/outputs/apk/debug/*.apk MingMusic-0.1.0-alpha.2.apk
-          sha256sum MingMusic-0.1.0-alpha.2.apk > MingMusic-0.1.0-alpha.2.apk.sha256
+          cp androidApp/build/outputs/apk/debug/*.apk MingMusic-0.1.0-alpha.3.apk
+          sha256sum MingMusic-0.1.0-alpha.3.apk > MingMusic-0.1.0-alpha.3.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.2" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.3" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-0.1.0-alpha.2.apk \
+            MingMusic-0.1.0-alpha.3.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.2/MingMusic-0.1.0-alpha.2.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.3/MingMusic-0.1.0-alpha.3.apk"
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view v0.1.0-alpha.2 >/dev/null 2>&1; then
-            gh release upload v0.1.0-alpha.2 \
-              MingMusic-0.1.0-alpha.2.apk \
-              MingMusic-0.1.0-alpha.2.apk.sha256 \
+          if gh release view v0.1.0-alpha.3 >/dev/null 2>&1; then
+            gh release upload v0.1.0-alpha.3 \
+              MingMusic-0.1.0-alpha.3.apk \
+              MingMusic-0.1.0-alpha.3.apk.sha256 \
               ming-music-update.json \
               --clobber
             exit 0
           fi
-          gh release create v0.1.0-alpha.2 \
-            MingMusic-0.1.0-alpha.2.apk \
-            MingMusic-0.1.0-alpha.2.apk.sha256 \
+          gh release create v0.1.0-alpha.3 \
+            MingMusic-0.1.0-alpha.3.apk \
+            MingMusic-0.1.0-alpha.3.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Ming Music 0.1.0 Alpha 2" \
-            --notes "Ming Music Alpha 2。更新软件图标并修复 Android versionName/versionCode 迭代；包含 FuoEvolve 播放基线、Ming Music 品牌迁移初版、悬浮歌词（拖动、同步歌词、上一首/播放暂停/下一首、直接关闭）及悬浮窗权限入口。此版本为 Alpha，在线音乐可播放性受各 Provider 授权、地区和服务状态影响。"
+            --title "Ming Music 0.1.0 Alpha 3" \
+            --notes "Ming Music Alpha 3。更新软件图标并修复 Android versionName/versionCode 迭代；包含 FuoEvolve 播放基线、Ming Music 品牌迁移初版、悬浮歌词（拖动、同步歌词、上一首/播放暂停/下一首、直接关闭）及悬浮窗权限入口。此版本为 Alpha，在线音乐可播放性受各 Provider 授权、地区和服务状态影响。"
