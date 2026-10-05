@@ -1,6 +1,7 @@
 package org.feeluown.mobile
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
@@ -38,6 +39,9 @@ internal class FloatingLyricsOverlay(
     private var lastPayload: StatusBarLyricsPayload = StatusBarLyricsPayload.Empty
     private var lastPositionMs: Long = 0L
     private var overlayEnabled = false
+    private var locked = false
+    private var colorIndex = 0
+    private val lyricColors = intArrayOf(Color.WHITE, Color.YELLOW, Color.CYAN, Color.GREEN, Color.MAGENTA)
     private var lastSnapshot: Snapshot? = null
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == FloatingLyricsPermissionActivity.KEY_ENABLED) {
@@ -104,6 +108,22 @@ internal class FloatingLyricsOverlay(
         view.findViewById<ImageButton>(R.id.floatingLyricsPrevious).setOnClickListener { playbackSession.previous() }
         view.findViewById<ImageButton>(R.id.floatingLyricsToggle).setOnClickListener { playbackSession.toggle() }
         view.findViewById<ImageButton>(R.id.floatingLyricsNext).setOnClickListener { playbackSession.next() }
+        val lockButton = view.findViewById<ImageButton>(R.id.floatingLyricsLock)
+        val colorButton = view.findViewById<ImageButton>(R.id.floatingLyricsColor)
+        locked = prefs.getBoolean("locked", false)
+        colorIndex = prefs.getInt("color_index", 0).coerceIn(0, lyricColors.lastIndex)
+        lyricText?.setTextColor(lyricColors[colorIndex])
+        lockButton.alpha = if (locked) 1f else 0.55f
+        lockButton.setOnClickListener {
+            locked = !locked
+            prefs.edit().putBoolean("locked", locked).apply()
+            lockButton.alpha = if (locked) 1f else 0.55f
+        }
+        colorButton.setOnClickListener {
+            colorIndex = (colorIndex + 1) % lyricColors.size
+            prefs.edit().putInt("color_index", colorIndex).apply()
+            lyricText?.setTextColor(lyricColors[colorIndex])
+        }
         view.findViewById<ImageButton>(R.id.floatingLyricsClose).setOnClickListener {
             // Direct close: hide immediately for this process session. The persistent settings
             // switch remains the authoritative way to enable it again.
@@ -133,7 +153,8 @@ internal class FloatingLyricsOverlay(
         var downY = 0f
         var startX = 0
         var startY = 0
-        view.setOnTouchListener { _, event ->
+        lyricText?.setOnTouchListener { _, event ->
+            if (locked) return@setOnTouchListener false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX
