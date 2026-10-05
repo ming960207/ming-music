@@ -19,10 +19,10 @@ internal actual fun rememberFloatingLyricsSettingsAction(): FloatingLyricsSettin
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefs = remember(context) {
-        context.getSharedPreferences(FloatingLyricsPermissionActivity.PREFS, android.content.Context.MODE_PRIVATE)
+        context.getSharedPreferences("ming_floating_lyrics", android.content.Context.MODE_PRIVATE)
     }
     fun currentEnabled(): Boolean =
-        Settings.canDrawOverlays(context) && prefs.getBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, false)
+        Settings.canDrawOverlays(context) && prefs.getBoolean("enabled", false)
 
     var enabled by remember { mutableStateOf(currentEnabled()) }
     DisposableEffect(lifecycleOwner, prefs) {
@@ -30,7 +30,7 @@ internal actual fun rememberFloatingLyricsSettingsAction(): FloatingLyricsSettin
             if (event == Lifecycle.Event.ON_RESUME) enabled = currentEnabled()
         }
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == FloatingLyricsPermissionActivity.KEY_ENABLED) enabled = currentEnabled()
+            if (key == "enabled") enabled = currentEnabled()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -44,14 +44,13 @@ internal actual fun rememberFloatingLyricsSettingsAction(): FloatingLyricsSettin
         available = true,
         setEnabled = { value ->
             if (!value) {
-                prefs.edit().putBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, false).apply()
+                prefs.edit().putBoolean("enabled", false).apply()
                 enabled = false
             } else if (Settings.canDrawOverlays(context)) {
-                prefs.edit().putBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, true).apply()
+                prefs.edit().putBoolean("enabled", true).apply()
                 enabled = true
             } else {
-                context.startActivity(Intent(context, FloatingLyricsPermissionActivity::class.java).apply {
-                    data = Uri.parse("mingmusic://floating-lyrics")
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("mingmusic://floating-lyrics")).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 })
             }
