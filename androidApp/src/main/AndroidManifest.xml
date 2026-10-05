@@ -192,6 +192,19 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".FloatingLyricsPermissionActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mingmusic" android:host="floating-lyrics" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name=".ProviderWebLoginActivity"
             android:exported="false" />
 
