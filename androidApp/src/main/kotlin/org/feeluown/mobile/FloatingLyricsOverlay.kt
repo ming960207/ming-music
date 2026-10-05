@@ -38,6 +38,7 @@ internal class FloatingLyricsOverlay(
     private var lastPayload: StatusBarLyricsPayload = StatusBarLyricsPayload.Empty
     private var lastPositionMs: Long = 0L
     private var overlayEnabled = false
+    private val prefs = appContext.getSharedPreferences(FloatingLyricsPermissionActivity.PREFS, Context.MODE_PRIVATE)
 
     fun start() {
         if (collectJob != null) return
@@ -64,8 +65,8 @@ internal class FloatingLyricsOverlay(
     }
 
     private fun render(snapshot: Snapshot) {
-        overlayEnabled = snapshot.enabled
-        if (!snapshot.enabled || !Settings.canDrawOverlays(appContext)) {
+        overlayEnabled = prefs.getBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, false)
+        if (!overlayEnabled || !snapshot.enabled || !Settings.canDrawOverlays(appContext)) {
             removeOverlay()
             return
         }
@@ -98,6 +99,7 @@ internal class FloatingLyricsOverlay(
             // Direct close: hide immediately for this process session. The persistent settings
             // switch remains the authoritative way to enable it again.
             overlayEnabled = false
+            prefs.edit().putBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, false).apply()
             removeOverlay()
         }
 
@@ -155,7 +157,7 @@ internal class FloatingLyricsOverlay(
     private fun startTicker() {
         if (tickerJob?.isActive == true) return
         tickerJob = scope.launch {
-            while (overlayEnabled && root != null) {
+            while (prefs.getBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, false) && root != null) {
                 val state = playbackSession.state.value
                 updateLyric(state.lyricsPositionMs)
                 delay(100L)
