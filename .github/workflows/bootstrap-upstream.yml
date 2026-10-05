@@ -1,0 +1,51 @@
+name: Bootstrap FuoEvolve upstream
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bootstrap-upstream.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ming Music develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Clone pinned FuoEvolve upstream
+        run: |
+          git clone --filter=blob:none https://github.com/feeluown/FuoEvolve.git /tmp/FuoEvolve
+          cd /tmp/FuoEvolve
+          git checkout 7e271c262c6c5495be5d1b680748ac4ba9e5bf0e
+
+      - name: Import upstream source while preserving Ming product docs
+        run: |
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/workflows/' \
+            --exclude='README.md' \
+            --exclude='docs/' \
+            /tmp/FuoEvolve/ ./
+          mkdir -p docs
+          printf '%s\n' '7e271c262c6c5495be5d1b680748ac4ba9e5bf0e' > docs/FUOEVOLVE_UPSTREAM_COMMIT
+          git status --short
+
+      - name: Commit imported baseline
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No upstream changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: import pinned FuoEvolve upstream baseline"
+          git push origin HEAD:develop
