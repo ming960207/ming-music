@@ -24,6 +24,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify Android build
         run: ./gradlew :androidApp:assembleDebug --stacktrace
+
+      - name: Verify updater points only to Ming Music GitHub
+        run: |
+          ! grep -R "feeluown.github.io/FuoEvolve/update\|raw.githubusercontent.com/feeluown/FuoEvolve/canary-dist" androidApp/src/main/kotlin/org/feeluown/mobile/update
+          grep -q "api.github.com/repos/ming960207/ming-music/releases" androidApp/src/main/kotlin/org/feeluown/mobile/update/AndroidAppUpdateController.kt
       - name: Prepare APK and GitHub update manifest
         run: |
           cp androidApp/build/outputs/apk/debug/*.apk MingMusic-0.1.0-alpha.1.apk
