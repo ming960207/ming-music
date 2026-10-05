@@ -1,0 +1,621 @@
+package org.feeluown.mobile
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import java.util.Properties
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
+
+/** Desktop composition root. It hosts the same AppRoot/UI graph used by Android and iOS. */
+@Composable
+fun DesktopAppHost(
+    nativeMpvApi: DesktopMpvNativeApi,
+    audioCaptureApi: DesktopAudioCaptureApi,
+    externalInputs: Flow<String>? = null,
+    windowContentWrapper: @Composable (@Composable () -> Unit) -> Unit = { content -> content() },
+    openGlRenderContextParameters: DesktopOpenGlRenderContextParameters? = null,
+) {
+    val container = remember(audioCaptureApi) { DesktopAppContainer(audioCaptureApi) }
+    var activeWebLoginProvider by remember { mutableStateOf<ProviderInfo?>(null) }
+    installDesktopFfmMpvVideoControllerFactory(
+        nativeApi = nativeMpvApi,
+        videoDecodeMode = container::desktopVideoDecodeMode,
+        openGlRenderContextParameters = openGlRenderContextParameters,
+    )
+    DisposableEffect(container) {
+        onDispose(container::close)
+    }
+    LaunchedEffect(container, externalInputs) {
+        externalInputs?.collect(container::openExternalInput)
+    }
+    fun requestProviderWebLogin(provider: ProviderInfo) {
+        val config = provider.loginConfig
+        when {
+            config == null -> container.appViewModel.showFeedback("${provider.providerName} 未配置网页登录地址")
+            config.loginUrl.isBlank() -> container.appViewModel.showFeedback("${provider.providerName} 未配置有效网页登录地址")
+            config.cookieKeyGroups.isEmpty() -> {
+                container.appViewModel.showFeedback("${provider.providerName} 未配置登录 Cookie 判定规则")
+            }
+            activeWebLoginProvider != null -> {
+                container.appViewModel.showFeedback("${activeWebLoginProvider?.providerName} 网页登录正在进行中")
+            }
+            else -> activeWebLoginProvider = provider
+        }
+    }
+    val desktopWindowContentWrapper: @Composable (@Composable () -> Unit) -> Unit = { content ->
+        windowContentWrapper {
+            Box(Modifier.fillMaxSize()) {
+                content()
+                activeWebLoginProvider?.let { provider ->
+                    DesktopProviderWebLogin(
+                        provider = provider,
+                        onResult = { result ->
+                            activeWebLoginProvider = null
+                            container.handleProviderWebLoginResult(provider, result)
+                        },
+                    )
+                }
+            }
+        }
+    }
+    DesktopProviderCredentialBackupHost(
+        backupFactory = { container.providerCredentialBackup },
+        availableProviders = { container.appUiGraph.providerCatalog.uiState.value.availableProviders },
+        refreshProviders = { providers ->
+            container.appUiGraph.providerAuth.refreshAll(providers, refreshUserInfo = true)
+        },
+        onFeedback = container.appViewModel::showFeedback,
+    ) {
+        AppRoot(
+            appViewModel = container.appViewModel,
+            uiGraph = container.appUiGraph,
+            windowContentWrapper = desktopWindowContentWrapper,
+            platform = AppPlatformBindings(
+                hasAudioPermission = true,
+                onRequestAudioPermission = {},
+                audioRecognitionAccess = AudioRecognitionAccess(
+                    source = AudioRecognitionSource.SystemOutput,
+                    isAvailable = true,
+                ),
+                onOpenProviderWebLogin = ::requestProviderWebLogin,
+                onLogoutProvider = container::logoutProvider,
+                onImportLocalPlaylistFile = container::importLocalPlaylistFile,
+                onExportLocalPlaylistFile = container::exportLocalPlaylistFile,
+                desktopVideoSettingsAvailable = true,
+                appVersionInfo = desktopAppVersionInfo(),
+            ),
+        )
+    }
+}
+
+private fun desktopAppVersionInfo(): String? = runCatching {
+    val properties = Properties()
+    val stream = Thread.currentThread().contextClassLoader
+        ?.getResourceAsStream(DESKTOP_VERSION_RESOURCE)
+        ?: return@runCatching null
+    stream.use(properties::load)
+    properties.getProperty("versionLabel")
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let { version -> "版本 $version" }
+}.getOrNull()
+
+private class DesktopAppContainer(
+    private val audioCaptureApi: DesktopAudioCaptureApi,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val providerCredentialStore = createDesktopProviderCredentialStore()
+    private val providerGraph by lazy {
+        createFuoProviderGraph(
+            credentials = providerCredentialStore,
+            persistentCache = createDesktopProviderCacheStore(),
+            isCellularConnection = { false },
+        )
+    }
+    val providerCredentialBackup by lazy {
+        DesktopProviderCredentialBackup(
+            credentialStore = providerCredentialStore,
+            providerRegistry = providerGraph.registry,
+            providerAuth = providerGraph.auth,
+        )
+    }
+    private val playbackProvider by lazy {
+        createAppPlaybackProviderPort(
+            providerRegistry = providerGraph.registry,
+            providerSearch = providerGraph.search,
+            providerCatalog = providerGraph.content,
+            providerPlaybackSource = providerGraph.playbackSource,
+        )
+    }
+    private val playlistMigrationFeatureController: PlaylistMigrationFeatureController by lazy {
+        createPlaylistMigrationFeatureController(
+            storage = createDesktopMigrationDocumentStorage(),
+            registry = providerGraph.registry,
+            catalog = providerGraph.content,
+            library = providerGraph.content,
+            search = providerGraph.search,
+            candidateProvider = createPlaylistMigrationCandidateProvider(playbackProvider),
+            scope = scope,
+        )
+    }
+    private val localRepository: LocalMusicRepository = DesktopUnsupportedLocalMusicRepository
+    private val localPlaylistRepository: LocalPlaylistRepository = createDesktopLocalPlaylistRepository()
+    private val desktopDownloadRepository = DesktopDownloadRepository(
+        resolvePayload = { track -> playbackProvider.resolve(track) },
+    )
+    private val downloadRepository: DownloadRepository = desktopDownloadRepository
+    private val settingsRepository: AppSettingsRepository = run {
+        AppLogger.i("AppSettings", "Desktop settings file path: ${desktopSettingsFilePath()}")
+        PersistentAppSettingsRepository(
+            store = createDesktopSettingsSnapshotStore(),
+            legacyLoader = null,
+            scope = scope,
+        )
+    }
+    private val playbackEngine = DesktopUnsupportedPlaybackEngine()
+    private val providerSessionRepository by lazy {
+        DefaultProviderSessionRepository(providerGraph.auth)
+    }
+    private val navigator = AppNavigator()
+    private val trackNavigationPort: TrackNavigationPort = createTrackNavigationPort(navigator)
+    private val homeRefreshPort: HomeRefreshPort by lazy { createHomeRefreshPort { homeFeatureController } }
+    private val playbackResumeStore: PlaybackResumeStore = createDesktopPlaybackResumeStore()
+    private val playbackQueueStore = createDesktopPlaybackQueueStore(playbackResumeStore)
+    private val listeningHistorySink: ListeningHistorySink = createDesktopListeningHistorySink()
+    private val resourceCacheRepository: ResourceCacheRepository = createDesktopResourceCacheRepository()
+    private val debugLogFeatureController by lazy {
+        createDebugLogFeatureController(createDesktopDebugLogRepository(), scope)
+    }
+    private val audioRecognitionRepository: AudioRecognitionRepository =
+        DesktopAudioRecognitionRepository(audioCaptureApi)
+
+    private val searchController: SearchFeatureController by lazy {
+        val initialSettings = settingsRepository.state.value.settings
+        createSearchFeatureController(
+            providerRepository = providerGraph.search,
+            localRepository = localRepository,
+            scope = scope,
+            providerIdsForSearch = {
+                val active = providerSessionRepository.state.value.authStates.keys
+                settingsRepository.state.value.settings.searchProviderIdsForFeature().filter(active::contains)
+            },
+            providerExists = { it in providerSessionRepository.state.value.authStates },
+            openSearch = { navigator.navigate(AppRoute.Search) },
+            onPreferencesChanged = { searchScope, selectedProviderId ->
+                scope.launch {
+                    settingsRepository.update {
+                        it.copy(
+                            searchScope = searchScope,
+                            selectedSearchProviderId = selectedProviderId,
+                        )
+                    }
+                }
+            },
+            initialState = SearchUiState(
+                searchScope = initialSettings.searchScope,
+                selectedSearchProviderId = initialSettings.selectedSearchProviderId,
+            ),
+        )
+    }
+
+    private val recognitionController by lazy {
+        createRecognitionFeatureController(
+            repository = audioRecognitionRepository,
+            scope = scope,
+            isPlaybackActive = { playbackEngine.state.value.status == PlayerStatus.Playing },
+            pausePlayback = playbackEngine::pause,
+            resumePlayback = playbackEngine::resume,
+        )
+    }
+
+    private val providerCatalogFeatureController by lazy {
+        createProviderCatalogFeatureController(
+            providerRegistry = providerGraph.registry,
+            providerCatalog = providerGraph.content,
+            sessionRepository = providerSessionRepository,
+            settingsRepository = settingsRepository,
+            scope = scope,
+            onHomeRefreshNeeded = { section ->
+                when (section) {
+                    null -> homeRefreshPort.markAllStale()
+                    ProviderDisplaySection.Recommend -> homeRefreshPort.markHomeSectionStale(HomeSection.Recommend)
+                    ProviderDisplaySection.Explore -> homeRefreshPort.markHomeSectionStale(HomeSection.Music)
+                    ProviderDisplaySection.Mine -> homeRefreshPort.markHomeSectionStale(HomeSection.Mine)
+                    ProviderDisplaySection.Search,
+                    ProviderDisplaySection.Replace -> Unit
+                }
+            },
+        )
+    }
+
+    private val localPlaylistFeatureController: LocalPlaylistFeatureOwner by lazy {
+        createLocalPlaylistFeatureController(
+            repository = localPlaylistRepository,
+            navigator = navigator,
+            scope = scope,
+            providers = { providerCatalogFeatureController.uiState.value.providers },
+        )
+    }
+
+    private val localMusicFeatureController: LocalMusicFeatureController by lazy {
+        createLocalMusicFeatureController(
+            repository = localRepository,
+            providerSearch = providerGraph.search,
+            providerPlaybackSource = providerGraph.playbackSource,
+            navigator = navigator,
+            settingsRepository = settingsRepository,
+            providers = { providerCatalogFeatureController.uiState.value.providers },
+            isLocalMusicSectionActive = {
+                val settings = settingsRepository.state.value.settings
+                settings.homeSection == HomeSection.Mine && settings.mineSection == MineSection.LocalMusic
+            },
+            scope = scope,
+            onTrackUpdated = { trackId, track -> playbackFeatureOwner.updateTrackCopies(trackId, track) },
+        )
+    }
+
+    private val downloadActionPort: DownloadActionPort by lazy {
+        createDownloadActionPort(
+            playbackProvider = playbackProvider,
+            downloadRepository = downloadRepository,
+            localRepository = localRepository,
+            localMusicController = localMusicFeatureController,
+            settingsRepository = settingsRepository,
+            scope = scope,
+            isLocalMusicSectionActive = {
+                val settings = settingsRepository.state.value.settings
+                settings.homeSection == HomeSection.Mine && settings.mineSection == MineSection.LocalMusic
+            },
+        )
+    }
+
+    private val playbackFeatureOwner: PlaybackFeatureOwner by lazy {
+        createPlaybackFeatureOwner(
+            playbackProvider = playbackProvider,
+            playbackEngine = playbackEngine,
+            playbackQueueStore = playbackQueueStore,
+            settingsRepository = settingsRepository,
+            downloadActions = downloadActionPort,
+            scope = scope,
+            openTrackDetail = trackNavigationPort::open,
+            listeningHistorySink = listeningHistorySink,
+        )
+    }
+
+    private val providerDetailOwners: ProviderDetailOwners by lazy {
+        createProviderDetailOwners(
+            providerRepository = providerGraph.content,
+            playbackQueue = playbackFeatureOwner.transport,
+            settingsRepository = settingsRepository,
+            providerCatalog = providerCatalogFeatureController,
+            navigator = navigator,
+            scope = scope,
+            onProviderMutation = { homeRefreshPort.refreshMine() },
+        )
+    }
+
+    private val homeFeatureController: HomeFeatureController by lazy {
+        createHomeFeatureController(
+            providerRepository = providerGraph.content,
+            providerCatalog = providerCatalogFeatureController,
+            providerDetails = providerDetailOwners,
+            playbackQueue = playbackFeatureOwner.transport,
+            localPlaylist = localPlaylistFeatureController,
+            localMusic = localMusicFeatureController,
+            settingsRepository = settingsRepository,
+            navigator = navigator,
+            scope = scope,
+        )
+    }
+
+    private val playlistActionPort: PlaylistActionPort by lazy {
+        createPlaylistActionPort(
+            providerLibrary = providerGraph.content,
+            providerCatalog = providerCatalogFeatureController,
+            providerDetails = providerDetailOwners,
+            localPlaylist = localPlaylistFeatureController,
+            scope = scope,
+            onProviderMutation = { homeRefreshPort.refreshMine() },
+        )
+    }
+
+    private val providerTrackActionPort: ProviderTrackActionPort by lazy {
+        createProviderTrackActionPort(
+            providerCatalogRepository = providerGraph.content,
+            providerLibrary = providerGraph.content,
+            providerCatalog = providerCatalogFeatureController,
+            providerDetails = providerDetailOwners,
+            searchController = searchController,
+            playbackNavigation = playbackFeatureOwner.navigation,
+            playbackQueue = playbackFeatureOwner.transport,
+            scope = scope,
+            refreshMineContent = homeRefreshPort::refreshMine,
+        )
+    }
+
+    private val providerAuthFeatureController by lazy {
+        createProviderAuthFeatureController(
+            providerAuth = providerGraph.auth,
+            sessionRepository = providerSessionRepository,
+            oauthDeviceCodeAssistant = NoOpOAuthDeviceCodeAssistant,
+            scope = scope,
+            providerName = { providerId ->
+                providerCatalogFeatureController.uiState.value.availableProviders
+                    .firstOrNull { it.providerId == providerId }
+                    ?.providerName
+                    ?: providerId
+            },
+            onSessionChanged = homeRefreshPort::markAllStale,
+        )
+    }
+
+    private val settingsFeatureController by lazy {
+        createSettingsFeatureController(
+            settingsRepository = settingsRepository,
+            providerAudioQuality = providerGraph.audioQuality,
+            downloadRepository = downloadRepository,
+            resourceCacheRepository = resourceCacheRepository,
+            localMusicController = localMusicFeatureController,
+            debugLogViewerAvailable = debugLogFeatureController.isAvailable,
+            navigator = navigator,
+            scope = scope,
+        )
+    }
+
+    private val onboardingFeatureController: OnboardingFeatureController by lazy {
+        createOnboardingFeatureController(
+            providerRegistry = providerGraph.registry,
+            settingsRepository = settingsRepository,
+            providerCatalog = providerCatalogFeatureController,
+            scope = scope,
+        )
+    }
+
+    private val sharedResourceActionPort: SharedResourceActionPort by lazy {
+        createSharedResourceActionPort(
+            providerRegistry = providerGraph.registry,
+            providerCatalog = providerCatalogFeatureController,
+            providerDetails = providerDetailOwners,
+            searchController = searchController,
+            settingsRepository = settingsRepository,
+            scope = scope,
+            onProviderConfigurationChanged = homeRefreshPort::markAllStale,
+        )
+    }
+
+    private val playbackSession by lazy {
+        createSharedPlaybackRuntimeSession(
+            playbackState = playbackFeatureOwner.playbackState,
+            playbackEngine = playbackEngine,
+            transportCoordinator = playbackFeatureOwner.transport,
+            startFailureSource = playbackFeatureOwner.startFailureSource,
+            scope = scope,
+        )
+    }
+
+    private val playbackSessionIntegration = lazy {
+        createDesktopPlaybackSessionIntegration(playbackSession)
+    }
+
+    private val searchAppPort by lazy {
+        DefaultSearchAppPort(
+            searchController = searchController,
+            providerSessions = { providerSessionRepository.state.value },
+            playbackQueue = playbackFeatureOwner.transport,
+            downloads = downloadActionPort,
+            playlists = playlistActionPort,
+            providerTrackActions = providerTrackActionPort,
+            navigator = navigator,
+            onSearchClosed = {
+                PlatformCoverImageCache.clearAsync()
+                scope.launch { providerGraph.clearMemoryCache() }
+            },
+        )
+    }
+
+    private val recognitionAppPort by lazy {
+        DefaultRecognitionAppPort(
+            isProviderEnabled = { id ->
+                providerSessionRepository.state.value.providers.any { it.providerId == id }
+            },
+            loadTrackDetail = providerGraph.content::trackDetail,
+            navigator = navigator,
+        )
+    }
+
+    private val playbackPresentationPort by lazy {
+        DefaultPlaybackPresentationPort(
+            playbackEngine,
+            playbackFeatureOwner.transport,
+            settingsRepository,
+            scope,
+        )
+    }
+
+    private val playbackUiGraph by lazy {
+        playbackSessionIntegration.value
+        PlaybackUiGraph(
+            navigation = playbackFeatureOwner.navigation,
+            presentation = playbackPresentationPort,
+            queue = playbackFeatureOwner.transport,
+            sleepTimer = playbackFeatureOwner.sleepTimer,
+            downloads = downloadActionPort,
+            playlists = playlistActionPort,
+            providerTrackActions = providerTrackActionPort,
+            localMusicActions = localMusicFeatureController,
+            lyrics = playbackFeatureOwner.lyrics,
+            replacement = playbackFeatureOwner.replacement,
+        )
+    }
+
+    private val listeningHistoryRepository by lazy {
+        ListeningHistoryPlaylistMetadataRepository(
+            delegate = playbackFeatureOwner.transport.listeningHistoryRepository ?: NoOpListeningHistoryRepository,
+            home = homeFeatureController,
+        )
+    }
+
+    private val providerDetailUiGraph by lazy {
+        ProviderDetailUiGraph(
+            owners = providerDetailOwners,
+            playbackQueue = playbackFeatureOwner.transport,
+            downloads = downloadActionPort,
+            playlists = playlistActionPort,
+            providerTrackActions = providerTrackActionPort,
+        )
+    }
+
+    private val homeUiGraph by lazy {
+        HomeFeatureUiGraph(
+            home = homeFeatureController,
+            providerCatalog = providerCatalogFeatureController,
+            playbackQueue = playbackFeatureOwner.transport,
+            listeningHistory = listeningHistoryRepository,
+            downloads = downloadActionPort,
+            playlists = playlistActionPort,
+            providerTrackActions = providerTrackActionPort,
+            localPlaylist = localPlaylistFeatureController,
+            localMusic = localMusicFeatureController,
+        )
+    }
+
+    private val searchRouteGraph by lazy { SearchRouteGraph(searchController, searchAppPort) }
+
+    private val recognitionRouteGraph by lazy {
+        RecognitionRouteGraph(recognitionController, recognitionAppPort)
+    }
+
+    val appUiGraph: AppUiGraph = createLazyAppUiGraph(
+        playbackSession = {
+            playbackSessionIntegration.value
+            playbackSession
+        },
+        playback = { playbackUiGraph },
+        providerDetail = { providerDetailUiGraph },
+        home = { homeUiGraph },
+        search = { searchRouteGraph },
+        recognition = { recognitionRouteGraph },
+        debugLogs = { debugLogFeatureController },
+        providerCatalog = { providerCatalogFeatureController },
+        providerAuth = { providerAuthFeatureController },
+        settings = { settingsFeatureController },
+        onboarding = { onboardingFeatureController },
+        localMusic = { localMusicFeatureController },
+        localPlaylist = { localPlaylistFeatureController },
+        sharedResources = { sharedResourceActionPort },
+        playlistMigration = { playlistMigrationFeatureController },
+    )
+
+    private val appBackCoordinator: AppBackCoordinator by lazy {
+        createAppBackCoordinator(
+            navigator = navigator,
+            playbackNavigationPort = playbackFeatureOwner.navigation,
+            playlistActionPort = playlistActionPort,
+            providerTrackActionPort = providerTrackActionPort,
+            localMusicFeatureController = localMusicFeatureController,
+            providerDetailOwners = providerDetailOwners,
+            searchAppPort = searchAppPort,
+            recognitionController = recognitionController,
+            settingsFeatureController = settingsFeatureController,
+            localPlaylistFeatureController = localPlaylistFeatureController,
+        )
+    }
+
+    val appViewModel = FuoAppViewModel(
+        settingsRepository = settingsRepository,
+        navigator = navigator,
+        recognitionControllerFactory = { recognitionController },
+        backCoordinatorFactory = { appBackCoordinator },
+    )
+
+    fun handleProviderWebLoginResult(provider: ProviderInfo, result: DesktopWebLoginResult) {
+        when (result) {
+            is DesktopWebLoginResult.Success -> {
+                scope.launch {
+                    providerAuthFeatureController.loginWithCookies(provider.providerId, result.cookiesJson)
+                }
+            }
+            DesktopWebLoginResult.Cancelled -> Unit
+            is DesktopWebLoginResult.Failure -> appViewModel.showFeedback(result.message)
+        }
+    }
+
+    fun logoutProvider(provider: ProviderInfo) {
+        providerAuthFeatureController.logout(provider.providerId)
+    }
+
+    fun desktopVideoDecodeMode(): DesktopVideoDecodeMode =
+        settingsRepository.state.value.settings.desktopVideoDecodeMode
+
+    fun openExternalInput(input: String) {
+        if (input == DESKTOP_ACTIVATION_FOCUS) return
+        val normalized = input.trim().trim('"')
+        if (normalized.isBlank()) return
+        val playlistResult = runCatching { readDesktopExternalPlaylist(normalized) }
+        playlistResult.exceptionOrNull()?.let { throwable ->
+            appViewModel.showFeedback(throwable.message ?: "无法读取本地歌单文件")
+            return
+        }
+        playlistResult.getOrNull()?.let { file ->
+            runCatching { localPlaylistFeatureController.prepareImport(file.fileName, file.content) }
+                .onFailure { appViewModel.showFeedback(it.message ?: "无法解析本地歌单文件") }
+            return
+        }
+        sharedResourceActionPort.open(normalized)
+    }
+
+    fun importLocalPlaylistFile() {
+        scope.launch {
+            val file = openDesktopTextFile(
+                dialogTitle = "导入本地歌单",
+                filterDescription = "FeelUOwn 歌单 (*.fuo)",
+                extensions = listOf("fuo"),
+                onFeedback = appViewModel::showFeedback,
+            ) ?: return@launch
+            if (file.content.isBlank()) {
+                appViewModel.showFeedback("无法读取本地歌单文件")
+                return@launch
+            }
+            runCatching { localPlaylistFeatureController.prepareImport(file.fileName, file.content) }
+                .onFailure { appViewModel.showFeedback(it.message ?: "无法解析本地歌单文件") }
+        }
+    }
+
+    fun exportLocalPlaylistFile(fileName: String, content: String) {
+        scope.launch {
+            val saved = saveDesktopTextFile(
+                dialogTitle = "导出本地歌单",
+                suggestedFileName = fileName,
+                filterDescription = "FeelUOwn 歌单 (*.fuo)",
+                extensions = listOf("fuo"),
+                content = content,
+                onFeedback = appViewModel::showFeedback,
+            )
+            if (saved) appViewModel.showFeedback("本地歌单已导出")
+        }
+    }
+
+    fun close() {
+        if (playbackSessionIntegration.isInitialized()) {
+            playbackSessionIntegration.value.close()
+        }
+        playbackQueueStore.flushLatest()
+        scope.cancel()
+        desktopDownloadRepository.close()
+        playbackEngine.close()
+    }
+}
+
+private const val DESKTOP_VERSION_RESOURCE = "fuoevolve-desktop-version.properties"

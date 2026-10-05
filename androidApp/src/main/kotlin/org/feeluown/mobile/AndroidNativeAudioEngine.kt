@@ -1,0 +1,693 @@
+package org.feeluown.mobile
+
+import android.content.ComponentName
+import android.content.Context
+import android.os.Bundle
+import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+
+class AndroidNativeAudioEngine(
+    private val context: Context,
+    private val scope: CoroutineScope,
+) : PlaybackEngine, PlaybackStartReasonAwareEngine {
+    private val playbackResumeStore = AndroidPlaybackResumeStore(context)
+    private var restoredSession: AndroidPlaybackResumeSnapshot? = playbackResumeStore.load()
+    private val startupState = PlaybackStartupStateMachine(
+        restoredTrackId = restoredSession?.currentTrack?.id,
+        restoredGeneration = restoredSession?.plan?.generation ?: 0L,
+    )
+    private val mutableState = MutableStateFlow(restoredSession?.toPlaybackState() ?: PlaybackState())
+    private var rawAudioQuality: String? = null
+    private var mediaController: MediaController? = null
+    private var controllerConnecting = false
+    private var pendingLockScreenLyrics: PendingLockScreenLyrics? = null
+    private var colorOsTranslationAvailable = false
+    private var activePlan: PlaybackPlan? = restoredSession?.plan
+    private var pendingResumePositionMs: Long? = null
+    private var lastPersistedIdentity: String? = null
+    private var lastPersistedPositionMs: Long = restoredSession?.positionMs ?: 0L
+    private var restoredRepublishSerial = 0L
+
+    override val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
+    override val resolvesResourcesInternally: Boolean = true
+
+    init {
+        connectController()
+        scope.launch {
+            FuoPlaybackService.audioDecoderInfo.collect { audioDecoderInfo ->
+                mutableState.value = mutableState.value.copy(audioDecoderInfo = audioDecoderInfo)
+            }
+        }
+        scope.launch {
+            FuoPlaybackService.audioFormatInfo.collect { audioFormatInfo ->
+                mutableState.value = mutableState.value.copy(
+                    audioQuality = normalizedAudioQualityLabel(rawAudioQuality, audioFormatInfo),
+                    audioFormatInfo = audioFormatInfo,
+                )
+            }
+        }
+        scope.launch {
+            FuoPlaybackService.playbackState.collect { serviceState ->
+                val serviceTrackId = serviceState.currentTrack?.logicalPlaybackTrack()?.id
+                when (
+                    startupState.onServiceState(
+                        serviceTrackId = serviceTrackId,
+                        serviceGeneration = serviceState.playbackGeneration,
+                        isEmptyIdleState = serviceState.isEmptyIdleState(),
+                    )
+                ) {
+                    PlaybackServiceStateAction.Ignore -> {
+                        AppLogger.d(
+                            TAG,
+                            "ignoring stale service state phase=${startupState.phase} " +
+                                "serviceTrackId=${serviceTrackId.orEmpty()} " +
+                                "serviceGeneration=${serviceState.playbackGeneration}",
+                        )
+                        return@collect
+                    }
+
+                    PlaybackServiceStateAction.RepublishRestored -> {
+                        val session = restoredSession ?: playbackResumeStore.load()
+                        if (session != null) {
+                            restoredSession = session
+                            activePlan = session.plan
+                            startupState.markRestored(session.currentTrack.id, session.plan.generation)
+                            publishRestoredState(session)
+                            return@collect
+                        }
+                        startupState.markIdle()
+                    }
+
+                    PlaybackServiceStateAction.Accept -> Unit
+                }
+
+                if (!serviceState.isEmptyIdleState() && serviceState.currentTrack != null) {
+                    restoredSession = null
+                }
+
+                rawAudioQuality = serviceState.audioQuality
+                val currentState = mutableState.value
+                val audioFormatInfo = currentState.audioFormatInfo
+                val pendingPosition = pendingResumePositionMs
+                mutableState.value = serviceState.copy(
+                    positionMs = pendingPosition ?: serviceState.positionMs,
+                    playbackParts = if (pendingPosition != null && serviceState.playbackParts.isEmpty()) {
+                        currentState.playbackParts
+                    } else {
+                        serviceState.playbackParts
+                    },
+                    currentPartIndex = if (pendingPosition != null && serviceState.currentPartIndex < 0) {
+                        currentState.currentPartIndex
+                    } else {
+                        serviceState.currentPartIndex
+                    },
+                    audioQuality = normalizedAudioQualityLabel(rawAudioQuality, audioFormatInfo),
+                    audioDecoderInfo = currentState.audioDecoderInfo,
+                    audioFormatInfo = audioFormatInfo,
+                )
+                applyPendingResumeSeek()
+                persistPlaybackState()
+                applyPendingLockScreenLyrics()
+            }
+        }
+        scope.launch {
+            while (true) {
+                updatePosition()
+                delay(1_000)
+            }
+        }
+    }
+
+    override fun prepareLoading(track: MusicTrack) {
+        prepareLoading(track, PlaybackStartReason.RESTORE_SESSION)
+    }
+
+    override fun prepareLoading(track: MusicTrack, reason: PlaybackStartReason) {
+        pendingLockScreenLyrics = null
+        pendingResumePositionMs = null
+
+        val session = if (reason.mayResumePausedSession) {
+            restoredSession ?: playbackResumeStore.load()
+        } else {
+            null
+        }
+        val canResumeRestoredSession = mutableState.value.status == PlayerStatus.Paused &&
+            session?.currentTrack?.id == track.id &&
+            session.resumePlan() != null
+        val startupMode = startupState.prepare(
+            trackId = track.id,
+            reason = reason,
+            canResumeRestoredSession = canResumeRestoredSession,
+        )
+        if (startupMode == PlaybackStartupMode.ResumeRestored) {
+            val resumedSession = requireNotNull(session)
+            restoredSession = resumedSession
+            activePlan = resumedSession.plan
+            connectController()
+            AppLogger.d(TAG, "prepared restored resume trackId=${track.id} reason=$reason")
+            return
+        }
+
+        // A fresh selection owns a new ColorOS lyric generation. Clear the previous payload and
+        // translation action before any asynchronous source/lyric resolution can complete.
+        updateColorOsTranslationAction(false)
+        clearCurrentLockScreenLyrics()
+        restoredSession = null
+        rawAudioQuality = null
+        if (reason.clearsDurablePlaybackResume) {
+            activePlan = null
+            lastPersistedIdentity = null
+            lastPersistedPositionMs = 0L
+            playbackResumeStore.clear()
+        }
+        mutableState.value = mutableState.value.copy(
+            status = PlayerStatus.Loading,
+            currentTrack = track,
+            positionMs = 0,
+            durationMs = track.durationMs ?: 0L,
+            bufferedMs = 0,
+            lyrics = track.lyrics,
+            audioQuality = null,
+            audioFormatInfo = null,
+            playbackParts = emptyList(),
+            currentPartIndex = -1,
+            playbackGeneration = 0L,
+            playbackQueueEntryId = null,
+            errorMessage = null,
+        )
+        if (reason.shouldDiscardLiveSession) {
+            discardLivePausedSession(track.id)
+        }
+        connectController()
+    }
+
+    override fun play(track: MusicTrack, payload: PlaybackPayload) = error("Android playback resolves resources in FuoPlaybackService")
+
+    override fun play(plan: PlaybackPlan) {
+        val first = plan.requests.firstOrNull() ?: return
+        val startupMode = startupState.beginStart(first.track.id, plan.generation)
+        if (startupMode == PlaybackStartupMode.ResumeRestored) {
+            val session = restoredSession
+            if (session != null && session.currentTrack.id == first.track.id) {
+                val livePosition = mediaController
+                    ?.takeIf { controller ->
+                        controller.currentMediaItem?.matchesTrack(first.track.id) == true &&
+                            controller.playbackState != Player.STATE_IDLE
+                    }
+                    ?.currentPosition
+                    ?.coerceAtLeast(0L)
+                if (startRestoredSession(session, plan.generation, livePosition ?: session.positionMs)) {
+                    return
+                }
+            }
+            startupState.beginFreshStart(first.track.id, plan.generation)
+        }
+
+        startFreshPlan(plan)
+    }
+
+    private fun startFreshPlan(plan: PlaybackPlan) {
+        val first = plan.requests.firstOrNull() ?: return
+        restoredSession = null
+        pendingResumePositionMs = null
+        activePlan = plan
+        lastPersistedIdentity = null
+        lastPersistedPositionMs = 0L
+        rawAudioQuality = null
+        mutableState.value = mutableState.value.copy(
+            status = PlayerStatus.Loading,
+            currentTrack = first.track,
+            positionMs = 0,
+            durationMs = first.track.durationMs ?: 0L,
+            lyrics = first.track.lyrics,
+            audioQuality = null,
+            audioFormatInfo = null,
+            playbackParts = emptyList(),
+            currentPartIndex = -1,
+            playbackGeneration = plan.generation,
+            playbackQueueEntryId = first.queueEntryId,
+            errorMessage = null,
+        )
+        persistPlaybackState(forceSession = true)
+        runCatching { FuoPlaybackService.play(context, plan.toJson()) }
+            .onFailure { throwable ->
+                startupState.markIdle()
+                activePlan = null
+                AppLogger.e(TAG, "start playback service failed trackId=${first.track.id}", throwable)
+                mutableState.value = mutableState.value.copy(
+                    status = PlayerStatus.Error,
+                    errorMessage = throwable.message ?: "无法启动播放器服务",
+                )
+                return
+            }
+        connectController()
+    }
+
+    private fun startRestoredSession(
+        session: AndroidPlaybackResumeSnapshot,
+        generation: Long,
+        resumePositionMs: Long,
+    ): Boolean {
+        val resumePlan = session.resumePlan(generation) ?: return false
+        activePlan = resumePlan
+        restoredSession = session
+        pendingResumePositionMs = resumePositionMs.coerceAtLeast(0L)
+        lastPersistedIdentity = null
+        lastPersistedPositionMs = pendingResumePositionMs ?: 0L
+        mutableState.value = session.toPlaybackState().copy(
+            status = PlayerStatus.Loading,
+            positionMs = pendingResumePositionMs ?: session.positionMs,
+            playbackGeneration = generation,
+            errorMessage = null,
+        )
+        persistPlaybackState(forceSession = true)
+        runCatching { FuoPlaybackService.play(context, resumePlan.toJson()) }
+            .onFailure { throwable ->
+                startupState.markRestored(session.currentTrack.id, session.plan.generation)
+                activePlan = session.plan
+                pendingResumePositionMs = null
+                playbackResumeStore.saveSession(session.plan, session.toPlaybackState())
+                AppLogger.e(TAG, "restore playback service failed trackId=${session.currentTrack.id}", throwable)
+                mutableState.value = session.toPlaybackState().copy(
+                    status = PlayerStatus.Error,
+                    errorMessage = throwable.message ?: "无法恢复播放进度",
+                )
+                return false
+            }
+        connectController()
+        return true
+    }
+
+    override fun pause() {
+        mediaController?.pause()
+        FuoPlaybackService.pause(context)
+        mutableState.value = mutableState.value.copy(status = PlayerStatus.Paused)
+        persistPlaybackState(forcePosition = true)
+    }
+
+    override fun resume() {
+        val controller = mediaController
+        val currentTrackId = mutableState.value.currentTrack?.logicalPlaybackTrack()?.id
+        val canResumeLiveSession = currentTrackId != null &&
+            controller?.currentMediaItem?.matchesTrack(currentTrackId) == true &&
+            controller.playbackState != Player.STATE_IDLE
+        if (canResumeLiveSession) {
+            startupState.markActive(currentTrackId, mutableState.value.playbackGeneration)
+            controller.play()
+            FuoPlaybackService.resume(context)
+            mutableState.value = mutableState.value.copy(status = PlayerStatus.Playing)
+            return
+        }
+
+        val session = restoredSession ?: playbackResumeStore.load()
+        if (session != null && session.resumePlan() != null) {
+            restoredSession = session
+            startupState.prepare(
+                trackId = session.currentTrack.id,
+                reason = PlaybackStartReason.RESTORE_SESSION,
+                canResumeRestoredSession = true,
+            )
+            startupState.beginStart(session.currentTrack.id, session.plan.generation)
+            if (startRestoredSession(session, session.plan.generation, session.positionMs)) return
+        }
+
+        controller?.play()
+        FuoPlaybackService.resume(context)
+        mutableState.value = mutableState.value.copy(status = PlayerStatus.Playing)
+    }
+
+    override fun stop() {
+        pendingLockScreenLyrics = null
+        pendingResumePositionMs = null
+        restoredSession = null
+        activePlan = null
+        startupState.stop()
+        lastPersistedIdentity = null
+        lastPersistedPositionMs = 0L
+        playbackResumeStore.clear()
+        rawAudioQuality = null
+        updateColorOsTranslationAction(false)
+        clearCurrentLockScreenLyrics()
+        mediaController?.stop()
+        FuoPlaybackService.stop(context)
+        mutableState.value = mutableState.value.copy(status = PlayerStatus.Idle, positionMs = 0, audioQuality = null)
+    }
+
+    override fun seekTo(positionMs: Long) {
+        val duration = mutableState.value.durationMs
+        val normalizedPosition = positionMs.coerceAtLeast(0).let { position ->
+            duration.takeIf { it > 0 }?.let(position::coerceAtMost) ?: position
+        }
+        pendingResumePositionMs = null
+        mediaController?.seekTo(normalizedPosition)
+        mutableState.value = mutableState.value.copy(positionMs = normalizedPosition)
+        persistPlaybackState(forcePosition = true)
+    }
+
+    override fun setStopAfterCurrentTrack(enabled: Boolean) {
+        FuoPlaybackService.setStopAfterCurrentTrack(context, enabled)
+    }
+
+    internal fun republishRestoredState() {
+        val session = restoredSession ?: return
+        if (!startupState.canRepublishRestoredState()) return
+        restoredRepublishSerial += 1L
+        publishRestoredState(session, forceGeneration = true)
+    }
+
+    /**
+     * Publishes complete timed lyrics through the OPlus/ColorOS media-session extension.
+     * Other Android systems ignore this metadata extra.
+     */
+    internal fun publishLockScreenLyrics(
+        trackId: String,
+        lyrics: String?,
+        alignmentOffsetMs: Long = 0L,
+    ) {
+        val normalizedLyrics = lyrics?.takeIf { it.isNotBlank() }
+        if (normalizedLyrics == null) {
+            pendingLockScreenLyrics = null
+            if (mutableState.value.currentTrack?.id == trackId) {
+                updateColorOsTranslationAction(false)
+                clearCurrentLockScreenLyrics(trackId)
+            }
+            return
+        }
+        pendingLockScreenLyrics = PendingLockScreenLyrics(
+            trackId = trackId,
+            lyrics = normalizedLyrics,
+            alignmentOffsetMs = alignmentOffsetMs,
+        )
+        applyPendingLockScreenLyrics()
+    }
+
+    private fun discardLivePausedSession(nextTrackId: String) {
+        val controller = mediaController ?: return
+        runCatching {
+            controller.pause()
+            if (controller.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) {
+                controller.clearMediaItems()
+            } else {
+                controller.stop()
+            }
+        }.onSuccess {
+            AppLogger.d(TAG, "discarded paused Media3 session before active selection trackId=$nextTrackId")
+        }.onFailure { throwable ->
+            AppLogger.w(TAG, "failed to discard paused Media3 session before trackId=$nextTrackId", throwable)
+        }
+    }
+
+    private fun connectController() {
+        if (mediaController != null || controllerConnecting) return
+        controllerConnecting = true
+        val token = SessionToken(context, ComponentName(context, FuoPlaybackService::class.java))
+        val future = MediaController.Builder(context, token).buildAsync()
+        future.addListener(
+            {
+                controllerConnecting = false
+                runCatching { future.get() }
+                    .onSuccess { controller ->
+                        mediaController = controller
+                        applyPendingResumeSeek()
+                        applyPendingLockScreenLyrics()
+                    }
+                    .onFailure { throwable ->
+                        AppLogger.e(TAG, "connect media controller failed", throwable)
+                        mutableState.value = mutableState.value.copy(
+                            status = PlayerStatus.Error,
+                            errorMessage = throwable.message ?: "无法连接播放器服务",
+                        )
+                    }
+            },
+            ContextCompat.getMainExecutor(context),
+        )
+    }
+
+    private fun publishRestoredState(
+        session: AndroidPlaybackResumeSnapshot,
+        forceGeneration: Boolean = false,
+    ) {
+        val restoredState = session.toPlaybackState()
+        val audioFormatInfo = mutableState.value.audioFormatInfo
+        mutableState.value = restoredState.copy(
+            playbackGeneration = if (forceGeneration) {
+                restoredState.playbackGeneration + restoredRepublishSerial
+            } else {
+                restoredState.playbackGeneration
+            },
+            audioDecoderInfo = mutableState.value.audioDecoderInfo,
+            audioFormatInfo = audioFormatInfo,
+            audioQuality = normalizedAudioQualityLabel(rawAudioQuality, audioFormatInfo),
+        )
+    }
+
+    private fun applyPendingResumeSeek() {
+        val position = pendingResumePositionMs ?: return
+        val controller = mediaController ?: return
+        val currentItem = controller.currentMediaItem ?: return
+        val trackId = mutableState.value.currentTrack?.id ?: restoredSession?.currentTrack?.id
+        if (trackId != null && !currentItem.matchesTrack(trackId)) return
+        val expectedGeneration = activePlan?.generation
+        if (expectedGeneration != null && !currentItem.matchesGeneration(expectedGeneration)) return
+        controller.seekTo(position)
+        pendingResumePositionMs = null
+        mutableState.value = mutableState.value.copy(positionMs = position)
+        persistPlaybackState(forcePosition = true)
+    }
+
+    private fun persistPlaybackState(
+        forceSession: Boolean = false,
+        forcePosition: Boolean = false,
+    ) {
+        val plan = activePlan ?: return
+        val state = mutableState.value
+        val track = state.currentTrack ?: return
+        if (!state.status.isDurablePlaybackResumeStatus()) return
+
+        val identity = buildString {
+            append(plan.generation)
+            append('|')
+            append(track.id)
+            append('|')
+            append(state.playbackQueueEntryId ?: 0L)
+            append('|')
+            append(state.currentPartIndex)
+            append('|')
+            state.playbackParts.forEach { part ->
+                append(part.id)
+                append(',')
+            }
+        }
+        if (forceSession || identity != lastPersistedIdentity) {
+            playbackResumeStore.saveSession(plan, state)
+            lastPersistedIdentity = identity
+            lastPersistedPositionMs = state.positionMs
+            return
+        }
+
+        if (forcePosition || abs(state.positionMs - lastPersistedPositionMs) >= POSITION_PERSIST_INTERVAL_MS) {
+            playbackResumeStore.savePosition(state.positionMs, state.durationMs)
+            lastPersistedPositionMs = state.positionMs
+        }
+    }
+
+    private fun applyPendingLockScreenLyrics() {
+        val pending = pendingLockScreenLyrics ?: return
+        val controller = mediaController ?: return
+        val track = mutableState.value.currentTrack ?: return
+        if (track.id != pending.trackId) return
+        if (!controller.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) {
+            AppLogger.w(TAG, "media session does not allow metadata replacement for ColorOS lyrics")
+            return
+        }
+        val currentItem = controller.currentMediaItem ?: return
+        if (!currentItem.matchesTrack(pending.trackId)) return
+        val currentIndex = controller.currentMediaItemIndex
+        if (currentIndex < 0) return
+        val currentExtras = currentItem.mediaMetadata.extras
+        val platformLyrics = toPlatformTimedLyrics(
+            rawLyrics = pending.lyrics,
+            alignmentOffsetMs = pending.alignmentOffsetMs,
+        )
+        if (platformLyrics == null) {
+            pendingLockScreenLyrics = null
+            updateColorOsTranslationAction(false)
+            clearCurrentLockScreenLyrics(pending.trackId)
+            return
+        }
+        updateColorOsTranslationAction(platformLyrics.translationLyric != null)
+        val lyricGeneration = currentExtras
+            ?.getLong(COLOR_OS_SESSION_GENERATION_EXTRA)
+            ?.takeIf { it > 0L }
+            ?: currentItem.colorOsSessionGeneration()
+            ?: mutableState.value.playbackGeneration.coerceAtLeast(1L)
+        val lyricInfo = buildColorOsLyricInfo(
+            packageName = context.packageName,
+            track = track,
+            lyrics = platformLyrics,
+            generation = lyricGeneration,
+        )
+        if (currentExtras?.getString(COLOR_OS_LYRIC_INFO_KEY) == lyricInfo) return
+        val extras = Bundle(currentExtras ?: Bundle.EMPTY).apply {
+            putString(COLOR_OS_LYRIC_INFO_KEY, lyricInfo)
+        }
+        val updatedItem = currentItem.withColorOsExtras(extras)
+        if (!isColorOsMetadataWithinLimit(updatedItem.mediaMetadata)) {
+            AppLogger.w(TAG, "ColorOS metadata too large; skipped trackId=${track.id}")
+            pendingLockScreenLyrics = null
+            updateColorOsTranslationAction(false)
+            clearCurrentLockScreenLyrics(pending.trackId)
+            return
+        }
+        replaceMediaItemMetadata(controller, currentIndex, updatedItem)
+            .onSuccess {
+                // Keep the desired timeline cached. If Media3 rebuilds the same current MediaItem,
+                // later playback-state events can restore a missing lyricInfo without rewriting
+                // metadata while the value is still identical.
+                AppLogger.d(TAG, "published ColorOS lock-screen lyrics trackId=${track.id}")
+                // An implicit bindings broadcast is dropped when no receiver is registered yet, so
+                // re-publish the admission alongside the payload the lock screen is about to read.
+                ColorOsBridgeBindings.publish(context, "lock-screen-lyrics")
+            }
+            .onFailure { throwable ->
+                AppLogger.w(TAG, "failed to publish ColorOS lock-screen lyrics trackId=${track.id}", throwable)
+            }
+    }
+
+    private fun clearCurrentLockScreenLyrics(trackId: String? = null) {
+        val controller = mediaController ?: return
+        if (!controller.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return
+        val currentItem = controller.currentMediaItem ?: return
+        if (trackId != null && !currentItem.matchesTrack(trackId)) return
+        val currentExtras = currentItem.mediaMetadata.extras ?: return
+        if (!currentExtras.containsKey(COLOR_OS_LYRIC_INFO_KEY)) return
+        val currentIndex = controller.currentMediaItemIndex
+        if (currentIndex < 0) return
+        val extras = Bundle(currentExtras).apply {
+            remove(COLOR_OS_LYRIC_INFO_KEY)
+        }
+        replaceMediaItemMetadata(controller, currentIndex, currentItem.withColorOsExtras(extras))
+            .onFailure { throwable ->
+                AppLogger.w(TAG, "failed to clear ColorOS lock-screen lyrics", throwable)
+            }
+    }
+
+    private fun replaceMediaItemMetadata(
+        controller: MediaController,
+        currentIndex: Int,
+        updatedItem: MediaItem,
+    ): Result<Unit> = runCatching {
+        controller.replaceMediaItem(currentIndex, updatedItem)
+    }
+
+    private fun MediaItem.withColorOsExtras(extras: Bundle): MediaItem = buildUpon()
+        .setMediaMetadata(
+            mediaMetadata.buildUpon()
+                // Media3 ignores extras in equals(). An empty station change makes the platform
+                // session republish metadata; station is not exported to legacy MediaMetadata.
+                .setStation(if (mediaMetadata.station == null) "" else null)
+                .setExtras(extras)
+                .build(),
+        )
+        .build()
+
+    private fun updateColorOsTranslationAction(available: Boolean) {
+        if (colorOsTranslationAvailable == available) return
+        colorOsTranslationAvailable = available
+        FuoPlaybackService.setColorOsTranslationAvailable(context, available)
+    }
+
+    private fun MediaItem.matchesTrack(trackId: String): Boolean =
+        mediaId.endsWith(":$trackId")
+
+    private fun MediaItem.matchesGeneration(generation: Long): Boolean =
+        mediaId.startsWith("$generation:")
+
+    private fun MediaItem.colorOsSessionGeneration(): Long? =
+        mediaId.split(':', limit = 3).getOrNull(1)?.toLongOrNull()?.takeIf { it > 0L }
+
+    private fun updatePosition() {
+        applyPendingResumeSeek()
+        val controller = mediaController ?: return
+        if (controller.playbackState == Player.STATE_IDLE) return
+        val currentState = mutableState.value
+        val currentItem = controller.currentMediaItem
+        val sessionLyrics = currentItem
+            ?.takeIf { item -> currentState.currentTrack?.let { item.matchesTrack(it.id) } ?: true }
+            ?.mediaMetadata
+            ?.extras
+            ?.getString("lyrics")
+            ?.takeIf { it.isNotBlank() }
+        mutableState.value = currentState.copy(
+            currentTrack = currentState.currentTrack ?: currentItem?.toMusicTrack(),
+            positionMs = controller.currentPosition.coerceAtLeast(0),
+            durationMs = controller.duration.takeIf { it > 0 } ?: currentState.durationMs,
+            bufferedMs = controller.bufferedPosition.coerceAtLeast(0),
+            lyrics = currentState.lyrics ?: sessionLyrics,
+        )
+        persistPlaybackState()
+    }
+
+    private fun MediaItem.toMusicTrack(): MusicTrack? {
+        val metadata = mediaMetadata
+        val title = metadata.title?.toString().orEmpty()
+        if (title.isBlank() && mediaId.isBlank()) return null
+        val sourceType = runCatching { TrackSourceType.valueOf(mediaMetadata.extras?.getString("source_type").orEmpty()) }
+            .getOrDefault(TrackSourceType.Provider)
+        return MusicTrack(
+            id = mediaId.ifBlank { "session:${metadata.title}:${metadata.artist}" },
+            title = title,
+            artists = metadata.artist?.toString().orEmpty(),
+            album = metadata.albumTitle?.toString().orEmpty(),
+            source = mediaMetadata.extras?.getString("source").orEmpty(),
+            sourceType = sourceType,
+            coverUrl = metadata.artworkUri?.toString(),
+            localUri = mediaMetadata.extras?.getString("local_uri")?.takeIf { it.isNotBlank() },
+            lyrics = mediaMetadata.extras?.getString("lyrics")?.takeIf { it.isNotBlank() },
+            providerId = mediaMetadata.extras?.getString("provider_id")?.takeIf { it.isNotBlank() },
+            providerName = mediaMetadata.extras?.getString("provider_name")?.takeIf { it.isNotBlank() },
+            isSmartReplacement = mediaMetadata.extras?.getBoolean("smart_replacement") ?: false,
+            originalId = mediaMetadata.extras?.getString("original_id")?.takeIf { it.isNotBlank() },
+            originalTitle = mediaMetadata.extras?.getString("original_title")?.takeIf { it.isNotBlank() },
+            originalArtists = mediaMetadata.extras?.getString("original_artists")?.takeIf { it.isNotBlank() },
+            originalAlbum = mediaMetadata.extras?.getString("original_album")?.takeIf { it.isNotBlank() },
+            originalSource = mediaMetadata.extras?.getString("original_source")?.takeIf { it.isNotBlank() },
+            originalProviderName = mediaMetadata.extras?.getString("original_provider_name")?.takeIf { it.isNotBlank() },
+            originalCoverUrl = mediaMetadata.extras?.getString("original_cover_url")?.takeIf { it.isNotBlank() },
+            replacementId = mediaMetadata.extras?.getString("replacement_id")?.takeIf { it.isNotBlank() },
+            replacementTitle = mediaMetadata.extras?.getString("replacement_title")?.takeIf { it.isNotBlank() },
+            replacementArtists = mediaMetadata.extras?.getString("replacement_artists")?.takeIf { it.isNotBlank() },
+            replacementAlbum = mediaMetadata.extras?.getString("replacement_album")?.takeIf { it.isNotBlank() },
+            replacementSource = mediaMetadata.extras?.getString("replacement_source")?.takeIf { it.isNotBlank() },
+            replacementProviderName = mediaMetadata.extras?.getString("replacement_provider_name")?.takeIf { it.isNotBlank() },
+            replacementCoverUrl = mediaMetadata.extras?.getString("replacement_cover_url")?.takeIf { it.isNotBlank() },
+            replacementStrategy = mediaMetadata.extras?.getString("replacement_strategy")?.takeIf { it.isNotBlank() },
+            replacementScore = mediaMetadata.extras?.getDouble("replacement_score")?.takeIf { it > 0.0 },
+        )
+    }
+
+    private fun PlaybackState.isEmptyIdleState(): Boolean =
+        status == PlayerStatus.Idle && currentTrack == null
+
+    private data class PendingLockScreenLyrics(
+        val trackId: String,
+        val lyrics: String,
+        val alignmentOffsetMs: Long,
+    )
+
+    private companion object {
+        private const val TAG = "FuoAudioEngine"
+        private const val POSITION_PERSIST_INTERVAL_MS = 5_000L
+        private const val COLOR_OS_SESSION_GENERATION_EXTRA = "coloros_session_generation"
+    }
+}

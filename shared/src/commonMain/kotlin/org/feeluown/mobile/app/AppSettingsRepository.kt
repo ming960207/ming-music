@@ -1,0 +1,261 @@
+package org.feeluown.mobile
+
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+fun interface LegacyAppSettingsLoader {
+    suspend fun load(): AppSettings
+}
+
+class PersistentAppSettingsRepository(
+    private val store: SettingsSnapshotStore,
+    private val legacyLoader: LegacyAppSettingsLoader?,
+    private val scope: CoroutineScope,
+) : AppSettingsRepository {
+    private val updateMutex = Mutex()
+    private val ready = CompletableDeferred<AppSettings>()
+    private val mutableState = MutableStateFlow(SettingsState())
+
+    override val state: StateFlow<SettingsState> = mutableState.asStateFlow()
+
+    init {
+        AppLogger.i("AppSettings", "Settings initialization started")
+        scope.launchSettingsInitialization()
+    }
+
+    override suspend fun awaitSettings(): AppSettings = ready.await()
+
+    override suspend fun update(transform: (AppSettings) -> AppSettings) {
+        updateInternal(preserveThemeTuning = true, transform = transform)
+    }
+
+    override suspend fun updateThemePaletteStyle(value: ThemePaletteStyle) {
+        updateInternal(preserveThemeTuning = false) { current ->
+            current.copy(themePaletteStyle = value)
+        }
+    }
+
+    override suspend fun updateThemeColorSpec(value: ThemeColorSpec) {
+        updateInternal(preserveThemeTuning = false) { current ->
+            current.copy(themeColorSpec = value)
+        }
+    }
+
+    private suspend fun updateInternal(
+        preserveThemeTuning: Boolean,
+        transform: (AppSettings) -> AppSettings,
+    ) {
+        ready.await()
+        updateMutex.withLock {
+            val current = mutableState.value.settings
+            val transformed = transform(current)
+            val updated = if (preserveThemeTuning) {
+                transformed.copy(
+                    themePaletteStyle = current.themePaletteStyle,
+                    themeColorSpec = current.themeColorSpec,
+                )
+            } else {
+                transformed
+            }.withoutProviderCredentials()
+            store.write(updated.toPersistedSettings())
+            mutableState.value = SettingsState(isLoaded = true, settings = updated)
+        }
+    }
+
+    private fun CoroutineScope.launchSettingsInitialization() = launch {
+        runCatching { loadOrMigrate() }
+            .onSuccess { settings ->
+                AppLogger.i(
+                    "AppSettings",
+                    "Settings initialization completed: " +
+                        "onboardingCompleted=${settings.onboardingCompleted}",
+                )
+                mutableState.value = SettingsState(isLoaded = true, settings = settings)
+                ready.complete(settings)
+            }
+            .onFailure { throwable ->
+                AppLogger.e(
+                    "AppSettings",
+                    "Settings initialization failed; falling back to default settings",
+                    throwable,
+                )
+                val fallback = AppSettings()
+                mutableState.value = SettingsState(
+                    isLoaded = true,
+                    settings = fallback,
+                    errorMessage = throwable.message ?: throwable::class.simpleName,
+                )
+                ready.complete(fallback)
+            }
+    }
+
+    private suspend fun loadOrMigrate(): AppSettings {
+        AppLogger.d("AppSettings", "Reading persisted settings snapshot")
+        return when (val result = store.read()) {
+            is SettingsSnapshotReadResult.Loaded -> {
+                AppLogger.i("AppSettings", "Persisted settings snapshot loaded")
+                result.snapshot.toAppSettings().withoutProviderCredentials()
+            }
+            SettingsSnapshotReadResult.Corrupted -> AppSettings().also { fallback ->
+                AppLogger.w("AppSettings", "Persisted settings snapshot is corrupted; writing defaults")
+                store.write(fallback.toPersistedSettings())
+            }
+            SettingsSnapshotReadResult.Missing -> {
+                AppLogger.i("AppSettings", "Persisted settings snapshot is missing; writing defaults")
+                val migrated = legacyLoader
+                    ?.load()
+                    ?.withoutProviderCredentials()
+                    ?: AppSettings()
+                store.write(migrated.toPersistedSettings())
+                migrated
+            }
+        }
+    }
+}
+
+private fun AppSettings.withoutProviderCredentials(): AppSettings = copy(
+    providerCookieInputs = emptyMap(),
+    providerHeaderInputs = emptyMap(),
+)
+
+internal fun AppSettings.toPersistedSettings(): PersistedSettingsV1 = PersistedSettingsV1(
+    onboardingCompleted = onboardingCompleted,
+    homeSection = homeSection.name,
+    mineSection = mineSection.name,
+    playlistFilter = playlistFilter.name,
+    localMusicViewMode = localMusicViewMode.name,
+    excludedLocalMusicDirectoryIds = excludedLocalMusicDirectoryIds,
+    includedLocalMusicDirectoryIds = includedLocalMusicDirectoryIds,
+    localMusicMinDurationSeconds = localMusicMinDurationSeconds,
+    searchScope = searchScope.name,
+    selectedSearchProviderId = selectedSearchProviderId,
+    selectedSettingsProviderId = selectedSettingsProviderId,
+    providerLoginMode = providerLoginMode.name,
+    enabledProviderIds = enabledProviderIds,
+    providerOrderIds = providerOrderIds,
+    searchProviderIds = searchProviderIds,
+    recommendProviderIds = recommendProviderIds,
+    exploreProviderIds = exploreProviderIds,
+    mineProviderIds = mineProviderIds,
+    playbackReportingProviderIds = playbackReportingProviderIds,
+    audioCacheLimitMb = audioCacheLimitMb,
+    imageCacheLimitMb = imageCacheLimitMb,
+    downloadParallelism = downloadParallelism,
+    wifiAudioQualityPolicy = wifiAudioQualityPolicy.name,
+    cellularAudioQualityPolicy = cellularAudioQualityPolicy.name,
+    unavailablePlaybackPolicy = unavailablePlaybackPolicy.name,
+    smartReplacementProviderIds = smartReplacementProviderIds,
+    smartReplacementMinScore = smartReplacementMinScore,
+    smartReplacementSelections = smartReplacementSelections.mapValues { (_, selection) -> selection.toPersisted() },
+    lyricsAssociations = lyricsAssociations,
+    lyricsAlignmentOffsetsMs = lyricsAlignmentOffsetsMs,
+    pauseOnOtherAppPlayback = pauseOnOtherAppPlayback,
+    desktopVideoDecodeMode = desktopVideoDecodeMode.name,
+    lyricFontSize = lyricFontSize.name,
+    statusBarLyricsEnabled = statusBarLyricsEnabled,
+    bydInstrumentLyricsEnabled = bydInstrumentLyricsEnabled,
+    bluetoothLyricsEnabled = bluetoothLyricsEnabled,
+    themeMode = themeMode.name,
+    themeColorScheme = themeColorScheme.name,
+    themePaletteStyle = themePaletteStyle.name,
+    themeColorSpec = themeColorSpec.name,
+    dynamicCoverColorEnabled = dynamicCoverColorEnabled,
+    waveformAnimationDisabled = waveformAnimationDisabled,
+    appUpdateChannel = appUpdateChannel.name,
+    autoCheckAppUpdates = autoCheckAppUpdates,
+    playlistPlaybackStatsVersion = playlistPlaybackStatsVersion,
+    playlistPlaybackStats = playlistPlaybackStats.mapValues { (_, stat) ->
+        PersistedPlaylistPlaybackStat(stat.playCount, stat.lastPlayedAtMillis)
+    },
+)
+
+internal fun PersistedSettingsV1.toAppSettings(): AppSettings {
+    val defaults = AppSettings()
+    return AppSettings(
+        onboardingCompleted = onboardingCompleted ?: defaults.onboardingCompleted,
+        homeSection = homeSection.enumOr(defaults.homeSection),
+        mineSection = mineSection.enumOr(defaults.mineSection),
+        playlistFilter = playlistFilter.enumOr(defaults.playlistFilter),
+        localMusicViewMode = localMusicViewMode.enumOr(defaults.localMusicViewMode),
+        excludedLocalMusicDirectoryIds = excludedLocalMusicDirectoryIds ?: defaults.excludedLocalMusicDirectoryIds,
+        includedLocalMusicDirectoryIds = includedLocalMusicDirectoryIds ?: defaults.includedLocalMusicDirectoryIds,
+        localMusicMinDurationSeconds = localMusicMinDurationSeconds ?: defaults.localMusicMinDurationSeconds,
+        searchScope = searchScope.enumOr(defaults.searchScope),
+        selectedSearchProviderId = selectedSearchProviderId,
+        selectedSettingsProviderId = selectedSettingsProviderId,
+        providerLoginMode = providerLoginMode.enumOr(defaults.providerLoginMode),
+        providerCookieInputs = emptyMap(),
+        providerHeaderInputs = emptyMap(),
+        enabledProviderIds = enabledProviderIds ?: defaults.enabledProviderIds,
+        providerOrderIds = providerOrderIds ?: defaults.providerOrderIds,
+        searchProviderIds = searchProviderIds ?: defaults.searchProviderIds,
+        recommendProviderIds = recommendProviderIds ?: defaults.recommendProviderIds,
+        exploreProviderIds = exploreProviderIds ?: defaults.exploreProviderIds,
+        mineProviderIds = mineProviderIds ?: defaults.mineProviderIds,
+        playbackReportingProviderIds = playbackReportingProviderIds ?: defaults.playbackReportingProviderIds,
+        audioCacheLimitMb = audioCacheLimitMb ?: defaults.audioCacheLimitMb,
+        imageCacheLimitMb = imageCacheLimitMb ?: defaults.imageCacheLimitMb,
+        downloadParallelism = downloadParallelism ?: defaults.downloadParallelism,
+        wifiAudioQualityPolicy = wifiAudioQualityPolicy.enumOr(defaults.wifiAudioQualityPolicy),
+        cellularAudioQualityPolicy = cellularAudioQualityPolicy.enumOr(defaults.cellularAudioQualityPolicy),
+        unavailablePlaybackPolicy = unavailablePlaybackPolicy.enumOr(defaults.unavailablePlaybackPolicy),
+        smartReplacementProviderIds = smartReplacementProviderIds ?: defaults.smartReplacementProviderIds,
+        smartReplacementMinScore = smartReplacementMinScore ?: defaults.smartReplacementMinScore,
+        smartReplacementSelections = smartReplacementSelections
+            ?.mapValues { (_, selection) -> selection.toDomain() }
+            ?: defaults.smartReplacementSelections,
+        lyricsAssociations = lyricsAssociations ?: defaults.lyricsAssociations,
+        lyricsAlignmentOffsetsMs = lyricsAlignmentOffsetsMs ?: defaults.lyricsAlignmentOffsetsMs,
+        pauseOnOtherAppPlayback = pauseOnOtherAppPlayback ?: defaults.pauseOnOtherAppPlayback,
+        desktopVideoDecodeMode = desktopVideoDecodeMode.enumOr(defaults.desktopVideoDecodeMode),
+        lyricFontSize = lyricFontSize.enumOr(defaults.lyricFontSize),
+        statusBarLyricsEnabled = statusBarLyricsEnabled ?: defaults.statusBarLyricsEnabled,
+        bydInstrumentLyricsEnabled = bydInstrumentLyricsEnabled ?: defaults.bydInstrumentLyricsEnabled,
+        bluetoothLyricsEnabled = bluetoothLyricsEnabled ?: defaults.bluetoothLyricsEnabled,
+        themeMode = themeMode.enumOr(defaults.themeMode),
+        themeColorScheme = themeColorScheme.enumOr(defaults.themeColorScheme),
+        themePaletteStyle = themePaletteStyle.enumOr(defaults.themePaletteStyle),
+        themeColorSpec = themeColorSpec.enumOr(defaults.themeColorSpec),
+        dynamicCoverColorEnabled = dynamicCoverColorEnabled ?: defaults.dynamicCoverColorEnabled,
+        waveformAnimationDisabled = waveformAnimationDisabled ?: defaults.waveformAnimationDisabled,
+        appUpdateChannel = appUpdateChannel.enumOr(defaults.appUpdateChannel),
+        autoCheckAppUpdates = autoCheckAppUpdates ?: defaults.autoCheckAppUpdates,
+        playlistPlaybackStatsVersion = playlistPlaybackStatsVersion ?: defaults.playlistPlaybackStatsVersion,
+        playlistPlaybackStats = playlistPlaybackStats
+            ?.mapValues { (_, stat) -> PlaylistPlaybackStat(stat.playCount, stat.lastPlayedAtMillis) }
+            ?: defaults.playlistPlaybackStats,
+    )
+}
+
+private fun SmartReplacementSelection.toPersisted() = PersistedSmartReplacementSelection(
+    replacementId = replacementId,
+    replacementTitle = replacementTitle,
+    replacementArtists = replacementArtists,
+    replacementAlbum = replacementAlbum,
+    replacementSource = replacementSource,
+    replacementProviderName = replacementProviderName,
+    replacementCoverUrl = replacementCoverUrl,
+    replacementDurationMs = replacementDurationMs,
+    replacementScore = replacementScore,
+)
+
+private fun PersistedSmartReplacementSelection.toDomain() = SmartReplacementSelection(
+    replacementId = replacementId,
+    replacementTitle = replacementTitle,
+    replacementArtists = replacementArtists,
+    replacementAlbum = replacementAlbum,
+    replacementSource = replacementSource,
+    replacementProviderName = replacementProviderName,
+    replacementCoverUrl = replacementCoverUrl,
+    replacementDurationMs = replacementDurationMs,
+    replacementScore = replacementScore,
+)
+
+private inline fun <reified T : Enum<T>> String?.enumOr(default: T): T =
+    this?.let { value -> enumValues<T>().firstOrNull { it.name == value } } ?: default

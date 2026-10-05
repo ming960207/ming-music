@@ -1,0 +1,1166 @@
+package org.feeluown.mobile
+
+import android.content.ContentValues
+import android.content.Context
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.RandomAccessFile
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.coroutines.coroutineContext
+
+class AndroidDownloadRepository(
+    private val context: Context,
+    private val providerRepository: PlaybackProviderPort,
+    private val onBackgroundWorkChanged: (List<DownloadTask>) -> Unit = {},
+) : DownloadRepository {
+    private val records = linkedMapOf<String, DownloadRecord>()
+    private val taskRecords = linkedMapOf<String, DownloadTask>()
+    private val resumeMetadata = linkedMapOf<String, DownloadResumeMetadata>()
+    private val mutableStates = MutableStateFlow<Map<String, DownloadState>>(emptyMap())
+    private val mutableTasks = MutableStateFlow<List<DownloadTask>>(emptyList())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val taskJobs = mutableMapOf<String, Job>()
+    private val taskConnections = mutableMapOf<String, HttpURLConnection>()
+    private val taskPayloads = mutableMapOf<String, PlaybackPayload>()
+    private val taskMutex = Mutex()
+    private var parallelism = DEFAULT_DOWNLOAD_PARALLELISM
+
+    override val states: StateFlow<Map<String, DownloadState>> = mutableStates.asStateFlow()
+    override val tasks: StateFlow<List<DownloadTask>> = mutableTasks.asStateFlow()
+
+    override suspend fun load() {
+        withContext(Dispatchers.IO) {
+            records.clear()
+            taskRecords.clear()
+            resumeMetadata.clear()
+            val file = indexFile()
+            if (file.exists()) {
+                val array = JSONArray(file.readText())
+                for (index in 0 until array.length()) {
+                    val record = array.getJSONObject(index).toRecord()
+                    records[record.trackId] = record
+                }
+            }
+            val tasksFile = taskIndexFile()
+            if (tasksFile.exists()) {
+                val array = JSONArray(tasksFile.readText())
+                for (index in 0 until array.length()) {
+                    val task = array.getJSONObject(index).toTask()
+                    taskRecords[task.id] = if (task.status == DownloadTaskStatus.Downloading) {
+                        task.copy(status = DownloadTaskStatus.Paused, updatedAt = System.currentTimeMillis())
+                    } else {
+                        task
+                    }
+                }
+            } else {
+                records.values.forEach { record ->
+                    taskRecords[record.trackId] = record.toCompletedTask()
+                }
+            }
+            loadResumeMetadata()
+            reconcileStorage()
+            saveRecords()
+            saveTasks()
+            saveResumeMetadata()
+            publishStates()
+            publishTasks()
+            schedule()
+        }
+    }
+
+    override suspend fun download(track: MusicTrack) {
+        if (track.sourceType != TrackSourceType.Provider) return
+        enqueue(track, null)
+    }
+
+    override suspend fun download(track: MusicTrack, payload: PlaybackPayload) {
+        if (track.sourceType != TrackSourceType.Provider) return
+        enqueue(track, payload)
+    }
+
+    private suspend fun enqueue(track: MusicTrack, payload: PlaybackPayload?) {
+        taskMutex.withLock {
+            val existing = taskRecords[track.id]
+            when (existing?.status) {
+                DownloadTaskStatus.Queued, DownloadTaskStatus.Downloading -> return
+                DownloadTaskStatus.Paused, DownloadTaskStatus.Failed -> updateTask(
+                    existing.copy(status = DownloadTaskStatus.Queued, failureMessage = null, updatedAt = System.currentTimeMillis()),
+                )
+                else -> updateTask(
+                    DownloadTask(
+                        id = track.id,
+                        track = track,
+                        status = DownloadTaskStatus.Queued,
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+            }
+            payload?.let { taskPayloads[track.id] = it }
+        }
+        schedule()
+    }
+
+    override suspend fun updateParallelism(parallelism: Int) {
+        this.parallelism = parallelism.coerceIn(1, 5)
+        schedule()
+    }
+
+    override suspend fun pause(taskId: String) {
+        taskMutex.withLock {
+            val task = taskRecords[taskId] ?: return
+            if (task.status !in setOf(DownloadTaskStatus.Queued, DownloadTaskStatus.Downloading)) return
+            taskConnections.remove(taskId)?.disconnect()
+            taskJobs.remove(taskId)?.cancel()
+            updateTask(task.copy(status = DownloadTaskStatus.Paused, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    override suspend fun resume(taskId: String) = restart(taskId)
+
+    override suspend fun retry(taskId: String) = restart(taskId)
+
+    override suspend fun deleteTask(taskId: String, deleteFile: Boolean) {
+        taskMutex.withLock {
+            taskConnections.remove(taskId)?.disconnect()
+            taskJobs.remove(taskId)?.cancel()
+            val task = taskRecords.remove(taskId) ?: return
+            deleteTemporaryFiles(task.id)
+            resumeMetadata.remove(task.id)
+            val record = records.remove(task.id)
+            if (deleteFile) record?.uri?.let(::deleteUri)
+            saveRecords()
+            saveTasks()
+            saveResumeMetadata()
+            publishTasks()
+            publishStates()
+        }
+    }
+
+    override suspend fun deleteDownloaded(track: MusicTrack) {
+        withContext(Dispatchers.IO) {
+            val key = track.providerId ?: track.id
+            val recordKey = records[key]?.let { key }
+                ?: track.localUri?.let { uri -> records.entries.firstOrNull { it.value.uri == uri }?.key }
+            val record = recordKey?.let(records::remove)
+            val uri = record?.uri ?: track.localUri
+            if ((record != null || track.sourceType == TrackSourceType.Downloaded) && uri != null) {
+                runCatching { context.contentResolver.delete(Uri.parse(uri), null, null) }
+                if (uri.startsWith("file:")) {
+                    runCatching { File(requireNotNull(Uri.parse(uri).path)).delete() }
+                }
+            }
+            val taskKey = recordKey ?: key
+            taskRecords.remove(taskKey)
+            resumeMetadata.remove(taskKey)
+            deleteTemporaryFiles(taskKey)
+            saveRecords()
+            saveTasks()
+            saveResumeMetadata()
+            publishTasks()
+            publishStates()
+        }
+    }
+
+    private suspend fun restart(taskId: String) {
+        taskMutex.withLock {
+            val task = taskRecords[taskId] ?: return
+            if (task.status == DownloadTaskStatus.Completed) return
+            updateTask(task.copy(status = DownloadTaskStatus.Queued, failureMessage = null, updatedAt = System.currentTimeMillis()))
+        }
+        schedule()
+    }
+
+    private fun schedule() {
+        scope.launch {
+            val ids = taskMutex.withLock {
+                val capacity = parallelism - taskJobs.values.count { it.isActive }
+                if (capacity <= 0) return@withLock emptyList()
+                taskRecords.values
+                    .filter { it.status == DownloadTaskStatus.Queued && it.id !in taskJobs }
+                    .sortedBy { it.createdAt }
+                    .take(capacity)
+                    .map { it.id }
+            }
+            ids.forEach { taskId ->
+                taskJobs[taskId] = scope.launch { runTask(taskId) }
+            }
+        }
+    }
+
+    private suspend fun runTask(taskId: String) {
+        var target: DownloadTarget? = null
+        try {
+            val task = taskMutex.withLock {
+                val current = taskRecords[taskId] ?: return
+                val downloading = current.copy(status = DownloadTaskStatus.Downloading, updatedAt = System.currentTimeMillis())
+                updateTask(downloading)
+                downloading
+            }
+            val payload = taskMutex.withLock { taskPayloads.remove(taskId) } ?: providerRepository.resolve(task.track)
+            val extension = extension(payload.url)
+            val tempFile = temporaryFile(taskId, extension)
+            writePayload(taskId, payload, tempFile)
+            writeEmbeddedMetadataIfNeeded(tempFile, extension, task.track, payload)
+            target = createTarget(task.track, payload, extension)
+            val bytes = copyToTarget(taskId, tempFile, target.uri)
+            writeLyricsFileIfNeeded(payload, target)
+            val finalUri = finishTarget(target, success = true)
+            val record = DownloadRecord(
+                trackId = task.id, title = task.track.title, artists = task.track.artists, album = task.track.album,
+                source = task.track.source, uri = finalUri.toString(), coverUrl = payload.coverUrl,
+                durationMs = payload.durationMs ?: task.track.durationMs, fileSize = bytes, createdAt = System.currentTimeMillis(),
+            )
+            taskMutex.withLock {
+                records[task.id] = record
+                resumeMetadata.remove(task.id)
+                updateTask(taskRecords.getValue(task.id).copy(
+                    status = DownloadTaskStatus.Completed, completedUri = finalUri.toString(), downloadedBytes = bytes,
+                    totalBytes = bytes, failureMessage = null, updatedAt = System.currentTimeMillis(),
+                ))
+                saveRecords()
+                saveResumeMetadata()
+            }
+            tempFile.delete()
+        } catch (cancelled: CancellationException) {
+            // pause() has already persisted the paused state and intentionally retains the partial file.
+        } catch (throwable: Throwable) {
+            target?.let { finishTarget(it, success = false) }
+            AppLogger.e(TAG, "download failed taskId=$taskId", throwable)
+            taskMutex.withLock {
+                taskRecords[taskId]?.let { updateTask(it.copy(
+                    status = DownloadTaskStatus.Failed,
+                    failureMessage = throwable.message ?: "下载失败",
+                    updatedAt = System.currentTimeMillis(),
+                )) }
+            }
+        } finally {
+            taskMutex.withLock { taskJobs.remove(taskId) }
+            schedule()
+        }
+    }
+
+    private suspend fun writePayload(taskId: String, payload: PlaybackPayload, targetFile: File): Long {
+        coroutineContext.ensureActive()
+        val connection = URL(payload.url).openConnection()
+        val httpConnection = connection as? HttpURLConnection
+        taskMutex.withLock { httpConnection?.let { taskConnections[taskId] = it } }
+        try {
+            coroutineContext.ensureActive()
+            payload.headers.forEach { (key, value) -> connection.setRequestProperty(key, value) }
+            val existing = targetFile.length()
+            val resourceKey = resumeResourceKey(payload.url)
+            val storedResume = taskMutex.withLock { resumeMetadata[taskId] }
+            val canResume = existing > 0L && storedResume?.resourceKey == resourceKey
+            if (canResume) {
+                connection.setRequestProperty("Range", "bytes=$existing-")
+                (storedResume.etag ?: storedResume.lastModified)?.let { validator ->
+                    connection.setRequestProperty("If-Range", validator)
+                }
+            }
+            val responseCode = httpConnection?.responseCode
+            val append = canResume && responseCode == HttpURLConnection.HTTP_PARTIAL
+            val start = if (append) existing else 0L
+            val total = connection.contentLengthLong.takeIf { it > 0 }?.plus(start)
+            val nextResume = DownloadResumeMetadata(
+                resourceKey = resourceKey,
+                etag = httpConnection?.getHeaderField("ETag")?.takeIf { it.isNotBlank() }
+                    ?: storedResume?.etag.takeIf { append },
+                lastModified = httpConnection?.getHeaderField("Last-Modified")?.takeIf { it.isNotBlank() }
+                    ?: storedResume?.lastModified.takeIf { append },
+            )
+            taskMutex.withLock {
+                resumeMetadata[taskId] = nextResume
+                saveResumeMetadata()
+            }
+
+            var written = start
+            var lastPublishedAt = 0L
+            var lastPersistedAt = 0L
+            connection.getInputStream().use { input ->
+                FileOutputStream(targetFile, append).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        coroutineContext.ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        written += read
+                        if (total != null) {
+                            val now = System.currentTimeMillis()
+                            val publish = now - lastPublishedAt >= DownloadCheckpointPolicy.progressPublishIntervalMs
+                            val persist = now - lastPersistedAt >= DownloadCheckpointPolicy.persistenceIntervalMs
+                            if (publish || persist) {
+                                checkpointProgress(
+                                    taskId = taskId,
+                                    downloadedBytes = written,
+                                    totalBytes = total,
+                                    publish = publish,
+                                    persist = persist,
+                                )
+                                if (publish) lastPublishedAt = now
+                                if (persist) lastPersistedAt = now
+                            }
+                        }
+                    }
+                }
+            }
+            if (total != null) {
+                checkpointProgress(
+                    taskId = taskId,
+                    downloadedBytes = written,
+                    totalBytes = total,
+                    publish = true,
+                    persist = true,
+                )
+            }
+            return written
+        } catch (throwable: Throwable) {
+            coroutineContext.ensureActive()
+            throw throwable
+        } finally {
+            taskMutex.withLock { taskConnections.remove(taskId) }
+            httpConnection?.disconnect()
+        }
+    }
+
+    private suspend fun checkpointProgress(
+        taskId: String,
+        downloadedBytes: Long,
+        totalBytes: Long,
+        publish: Boolean,
+        persist: Boolean,
+    ) {
+        taskMutex.withLock {
+            val task = taskRecords[taskId] ?: return@withLock
+            if (task.status != DownloadTaskStatus.Downloading) return@withLock
+            taskRecords[taskId] = task.copy(
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes,
+                updatedAt = System.currentTimeMillis(),
+            )
+            if (persist) saveTasks()
+            if (publish) {
+                publishTasks()
+                publishStates()
+            }
+        }
+    }
+
+    private fun copyToTarget(taskId: String, sourceFile: File, targetUri: Uri): Long {
+        var written = 0L
+        sourceFile.inputStream().use { input ->
+            val outputStream = if (targetUri.scheme == "file") {
+                FileOutputStream(File(requireNotNull(targetUri.path)))
+            } else {
+                context.contentResolver.openOutputStream(targetUri, "w")
+            }
+            outputStream?.use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    written += read
+                }
+            } ?: error("无法写入下载文件")
+        }
+        return written
+    }
+
+    private fun createTarget(track: MusicTrack, payload: PlaybackPayload, extension: String): DownloadTarget {
+        val mimeType = mimeType(extension)
+        val title = payload.title.ifBlank { track.title }
+        val artists = payload.artists.ifBlank { track.artists }
+        val album = payload.album.ifBlank { track.album }
+        val fileName = "${sanitize(title)} - ${sanitize(artists)}.$extension"
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
+                put(MediaStore.Audio.Media.TITLE, title)
+                put(MediaStore.Audio.Media.ARTIST, artists)
+                put(MediaStore.Audio.Media.ALBUM, album)
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
+                put(MediaStore.Audio.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/FeelUOwn")
+            }
+            val uri = requireNotNull(
+                context.contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+            ) { "无法创建系统音乐库文件" }
+            DownloadTarget(uri, fileName, mimeType)
+        } else {
+            val dir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                "FeelUOwn",
+            )
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, fileName)
+            DownloadTarget(Uri.fromFile(file), fileName, mimeType)
+        }
+    }
+
+    private fun finishTarget(target: DownloadTarget, success: Boolean): Uri {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (success) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Audio.Media.IS_PENDING, 0)
+                }
+                context.contentResolver.update(target.uri, values, null, null)
+            } else {
+                context.contentResolver.delete(target.uri, null, null)
+            }
+            return target.uri
+        }
+        val file = File(requireNotNull(target.uri.path))
+        if (success) {
+            MediaScannerConnection.scanFile(
+                context,
+                arrayOf(file.absolutePath),
+                arrayOf(target.mimeType),
+                null,
+            )
+        } else {
+            file.delete()
+        }
+        return target.uri
+    }
+
+    private fun writeLyricsFileIfNeeded(payload: PlaybackPayload, audioTarget: DownloadTarget) {
+        val lyrics = payload.lyrics?.takeIf { it.isNotBlank() } ?: return
+        val fileName = "${audioTarget.fileName.substringBeforeLast('.', audioTarget.fileName)}.lrc"
+        runCatching {
+            val target = lyricsFile(fileName)
+            val directory = requireNotNull(target.parentFile)
+            if (!directory.exists()) directory.mkdirs()
+            target.writeText(lyrics, Charsets.UTF_8)
+        }.onFailure { throwable ->
+            AppLogger.w(TAG, "save lyrics failed fileName=$fileName", throwable)
+        }
+    }
+
+    private fun lyricsFile(fileName: String): File = File(File(context.filesDir, LYRICS_FOLDER), fileName)
+
+    private fun saveRecords() {
+        val array = JSONArray()
+        records.values.forEach { array.put(it.toJson()) }
+        indexFile().writeText(array.toString())
+    }
+
+    private fun publishStates() {
+        val active = taskRecords.values.associate { task ->
+            task.id to when (task.status) {
+                DownloadTaskStatus.Queued -> DownloadState.Queued
+                DownloadTaskStatus.Downloading -> DownloadState.Downloading(
+                    task.totalBytes?.takeIf { it > 0 }?.let { task.downloadedBytes.toFloat() / it } ?: 0f,
+                )
+                DownloadTaskStatus.Paused -> DownloadState.Paused
+                DownloadTaskStatus.Failed -> DownloadState.Failed(task.failureMessage ?: "下载失败")
+                DownloadTaskStatus.Completed -> DownloadState.Downloaded(task.completedUri ?: records[task.id]?.uri.orEmpty())
+            }
+        }
+        mutableStates.value = records.mapValues { DownloadState.Downloaded(it.value.uri) } + active
+    }
+
+    private fun publishTasks() {
+        mutableTasks.value = taskRecords.values.sortedWith(
+            compareBy<DownloadTask> { if (it.status == DownloadTaskStatus.Downloading) 0 else 1 }
+                .thenByDescending { it.createdAt },
+        )
+        onBackgroundWorkChanged(mutableTasks.value)
+    }
+
+    private fun updateTask(task: DownloadTask) {
+        taskRecords[task.id] = task
+        saveTasks()
+        publishTasks()
+        publishStates()
+    }
+
+    private fun indexFile(): File = File(context.filesDir, "downloads.json")
+    private fun taskIndexFile(): File = File(context.filesDir, "download_tasks.json")
+    private fun resumeIndexFile(): File = File(context.filesDir, "download_resume.json")
+
+    private fun temporaryFile(taskId: String, extension: String = "part"): File {
+        val directory = File(context.filesDir, "download_parts")
+        if (!directory.exists()) directory.mkdirs()
+        return File(directory, "${temporaryFilePrefix(taskId)}.$extension.part")
+    }
+
+    private fun temporaryFilePrefix(taskId: String): String = taskId.hashCode().toUInt().toString(16)
+
+    private fun deleteTemporaryFiles(taskId: String) {
+        val directory = File(context.filesDir, "download_parts")
+        if (!directory.isDirectory) return
+        val prefix = "${temporaryFilePrefix(taskId)}."
+        directory.listFiles()?.forEach { file ->
+            if (file.isFile && file.name.startsWith(prefix) && file.name.endsWith(".part")) {
+                runCatching { file.delete() }
+            }
+        }
+    }
+
+    private fun deleteUri(uri: String) {
+        runCatching { context.contentResolver.delete(Uri.parse(uri), null, null) }
+        if (uri.startsWith("file:")) runCatching { File(requireNotNull(Uri.parse(uri).path)).delete() }
+    }
+
+    private fun saveTasks() {
+        val array = JSONArray()
+        taskRecords.values.forEach { array.put(it.toJson()) }
+        taskIndexFile().writeText(array.toString())
+    }
+
+    private fun loadResumeMetadata() {
+        val file = resumeIndexFile()
+        if (!file.isFile) return
+        runCatching {
+            val array = JSONArray(file.readText())
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                val taskId = item.optString("taskId").takeIf { it.isNotBlank() } ?: continue
+                val resourceKey = item.optString("resourceKey").takeIf { it.isNotBlank() } ?: continue
+                resumeMetadata[taskId] = DownloadResumeMetadata(
+                    resourceKey = resourceKey,
+                    etag = item.optString("etag").takeIf { it.isNotBlank() },
+                    lastModified = item.optString("lastModified").takeIf { it.isNotBlank() },
+                )
+            }
+        }.onFailure { throwable ->
+            AppLogger.w(TAG, "load download resume metadata failed", throwable)
+        }
+    }
+
+    private fun saveResumeMetadata() {
+        val array = JSONArray()
+        resumeMetadata.forEach { (taskId, metadata) ->
+            array.put(
+                JSONObject()
+                    .put("taskId", taskId)
+                    .put("resourceKey", metadata.resourceKey)
+                    .put("etag", metadata.etag ?: "")
+                    .put("lastModified", metadata.lastModified ?: ""),
+            )
+        }
+        resumeIndexFile().writeText(array.toString())
+    }
+
+    private fun reconcileStorage() {
+        val now = System.currentTimeMillis()
+        val invalidCompletedIds = taskRecords.values
+            .filter { task ->
+                task.status == DownloadTaskStatus.Completed &&
+                    task.completedUri?.takeIf { it.isNotBlank() }?.let(::downloadedUriExists) != true
+            }
+            .map { it.id }
+            .toSet()
+        invalidCompletedIds.forEach { taskId ->
+            val task = taskRecords[taskId] ?: return@forEach
+            records.remove(taskId)
+            resumeMetadata.remove(taskId)
+            taskRecords[taskId] = task.copy(
+                status = DownloadTaskStatus.Failed,
+                downloadedBytes = 0L,
+                totalBytes = null,
+                completedUri = null,
+                failureMessage = "下载文件不存在，请重试",
+                updatedAt = now,
+            )
+        }
+
+        records.entries.toList().forEach { (taskId, record) ->
+            if (!downloadedUriExists(record.uri)) {
+                records.remove(taskId)
+                resumeMetadata.remove(taskId)
+                taskRecords[taskId]?.let { task ->
+                    taskRecords[taskId] = task.copy(
+                        status = DownloadTaskStatus.Failed,
+                        downloadedBytes = 0L,
+                        totalBytes = null,
+                        completedUri = null,
+                        failureMessage = "下载文件不存在，请重试",
+                        updatedAt = now,
+                    )
+                }
+            } else if (taskId !in taskRecords) {
+                taskRecords[taskId] = record.toCompletedTask()
+            }
+        }
+
+        val activePrefixes = taskRecords.values
+            .filter { it.status != DownloadTaskStatus.Completed }
+            .mapTo(hashSetOf()) { temporaryFilePrefix(it.id) }
+        val partsDirectory = File(context.filesDir, "download_parts")
+        partsDirectory.listFiles()?.forEach { file ->
+            if (!file.isFile || !file.name.endsWith(".part")) return@forEach
+            val prefix = file.name.substringBefore('.')
+            if (prefix !in activePrefixes) runCatching { file.delete() }
+        }
+    }
+
+    private fun downloadedUriExists(uriString: String): Boolean {
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return false
+        return when (uri.scheme) {
+            "file" -> uri.path?.let(::File)?.isFile == true
+            "content" -> runCatching {
+                context.contentResolver.query(
+                    uri,
+                    arrayOf(MediaStore.MediaColumns._ID),
+                    null,
+                    null,
+                    null,
+                )?.use { cursor -> cursor.moveToFirst() } ?: false
+            }.getOrDefault(false)
+            else -> false
+        }
+    }
+
+    private fun resumeResourceKey(url: String): String = url.substringBefore('?').substringBefore('#')
+
+    private fun JSONObject.toRecord(): DownloadRecord = DownloadRecord(
+        trackId = getString("trackId"),
+        title = optString("title"),
+        artists = optString("artists"),
+        album = optString("album"),
+        source = optString("source"),
+        uri = optString("uri"),
+        coverUrl = optString("coverUrl").takeIf { it.isNotBlank() },
+        durationMs = optLong("durationMs").takeIf { it > 0 },
+        fileSize = optLong("fileSize"),
+        createdAt = optLong("createdAt"),
+    )
+
+    private fun DownloadRecord.toJson(): JSONObject = JSONObject()
+        .put("trackId", trackId)
+        .put("title", title)
+        .put("artists", artists)
+        .put("album", album)
+        .put("source", source)
+        .put("uri", uri)
+        .put("coverUrl", coverUrl ?: "")
+        .put("durationMs", durationMs ?: 0)
+        .put("fileSize", fileSize)
+        .put("createdAt", createdAt)
+
+    private fun DownloadRecord.toCompletedTask(): DownloadTask = DownloadTask(
+        id = trackId,
+        track = MusicTrack(
+            id = trackId, title = title, artists = artists, album = album, source = source,
+            sourceType = TrackSourceType.Provider, coverUrl = coverUrl, durationMs = durationMs,
+        ),
+        status = DownloadTaskStatus.Completed,
+        createdAt = createdAt,
+        updatedAt = createdAt,
+        downloadedBytes = fileSize,
+        totalBytes = fileSize.takeIf { it > 0 },
+        completedUri = uri,
+    )
+
+    private fun DownloadTask.toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("trackId", track.id)
+        .put("title", track.title)
+        .put("artists", track.artists)
+        .put("album", track.album)
+        .put("source", track.source)
+        .put("sourceType", track.sourceType.name)
+        .put("coverUrl", track.coverUrl ?: "")
+        .put("durationMs", track.durationMs ?: 0)
+        .put("providerId", track.providerId ?: "")
+        .put("providerName", track.providerName ?: "")
+        .put("status", status.name)
+        .put("createdAt", createdAt)
+        .put("updatedAt", updatedAt)
+        .put("downloadedBytes", downloadedBytes)
+        .put("totalBytes", totalBytes ?: 0)
+        .put("failureMessage", failureMessage ?: "")
+        .put("completedUri", completedUri ?: "")
+
+    private fun JSONObject.toTask(): DownloadTask {
+        val trackId = optString("trackId").ifBlank { getString("id") }
+        return DownloadTask(
+            id = getString("id"),
+            track = MusicTrack(
+                id = trackId,
+                title = optString("title"), artists = optString("artists"), album = optString("album"),
+                source = optString("source"),
+                sourceType = runCatching { TrackSourceType.valueOf(optString("sourceType")) }.getOrDefault(TrackSourceType.Provider),
+                coverUrl = optString("coverUrl").takeIf { it.isNotBlank() },
+                durationMs = optLong("durationMs").takeIf { it > 0 },
+                providerId = optString("providerId").takeIf { it.isNotBlank() },
+                providerName = optString("providerName").takeIf { it.isNotBlank() },
+            ),
+            status = runCatching { DownloadTaskStatus.valueOf(optString("status")) }.getOrDefault(DownloadTaskStatus.Paused),
+            createdAt = optLong("createdAt").takeIf { it > 0 } ?: System.currentTimeMillis(),
+            updatedAt = optLong("updatedAt").takeIf { it > 0 } ?: System.currentTimeMillis(),
+            downloadedBytes = optLong("downloadedBytes"),
+            totalBytes = optLong("totalBytes").takeIf { it > 0 },
+            failureMessage = optString("failureMessage").takeIf { it.isNotBlank() },
+            completedUri = optString("completedUri").takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun sanitize(value: String): String {
+        val sanitized = value.replace(Regex("""[\\/:*?"<>|]"""), "_").trim()
+        return sanitized.ifBlank { "unknown" }.take(80)
+    }
+
+    private fun extension(url: String): String {
+        if (M4S_EXTENSION_PATTERN.containsMatchIn(url)) return "m4a"
+        val clean = url.substringBefore('?').substringAfterLast('/', "")
+        val ext = clean.substringAfterLast('.', "mp3").lowercase()
+        return ext.takeIf { it.length in 2..5 } ?: "mp3"
+    }
+
+    private fun mimeType(extension: String): String {
+        return when (extension.lowercase()) {
+            "mp3" -> "audio/mpeg"
+            "m4a", "mp4" -> "audio/mp4"
+            "flac" -> "audio/flac"
+            "wav" -> "audio/wav"
+            "ogg" -> "audio/ogg"
+            else -> "audio/mpeg"
+        }
+    }
+
+    private fun writeEmbeddedMetadataIfNeeded(
+        file: File,
+        extension: String,
+        track: MusicTrack,
+        payload: PlaybackPayload,
+    ) {
+        when (extension.lowercase()) {
+            "mp3" -> writeId3Tag(file, track, payload)
+            "m4a" -> writeM4aTag(file, track, payload)
+        }
+    }
+
+    private fun writeId3Tag(file: File, track: MusicTrack, payload: PlaybackPayload) {
+        val title = payload.title.ifBlank { track.title }
+        val artists = payload.artists.ifBlank { track.artists }
+        val album = payload.album.ifBlank { track.album }
+        val coverImage = loadCoverImage(payload.coverUrl ?: track.coverUrl)
+        if (title.isBlank() && artists.isBlank() && album.isBlank() && coverImage == null) return
+
+        val audioBytes = file.readBytes().stripId3v2Tag()
+        val tagBytes = buildId3v23Tag(
+            title = title,
+            artists = artists,
+            album = album,
+            coverImage = coverImage,
+        )
+        FileOutputStream(file, false).use { output ->
+            output.write(tagBytes)
+            output.write(audioBytes)
+        }
+    }
+
+    private fun writeM4aTag(file: File, track: MusicTrack, payload: PlaybackPayload) {
+        val title = payload.title.ifBlank { track.title }
+        val artists = payload.artists.ifBlank { track.artists }
+        val album = payload.album.ifBlank { track.album }
+        val coverImage = loadCoverImage(payload.coverUrl ?: track.coverUrl)
+        if (title.isBlank() && artists.isBlank() && album.isBlank() && coverImage == null) return
+
+        runCatching {
+            insertM4aMetadata(file, title, artists, album, coverImage)
+        }.onFailure { throwable ->
+            AppLogger.w(TAG, "failed to write m4a metadata file=${file.name}", throwable)
+        }
+    }
+
+    private fun insertM4aMetadata(
+        file: File,
+        title: String,
+        artists: String,
+        album: String,
+        coverImage: CoverImage?,
+    ) {
+        val atoms = locateM4aAtoms(file)
+        val moov = atoms.firstOrNull { it.type == "moov" } ?: return
+        val original = ByteArray(moov.size.toInt())
+        RandomAccessFile(file, "r").use { input ->
+            input.seek(moov.offset)
+            input.readFully(original)
+        }
+        val metadata = buildM4aMetadata(title, artists, album, coverImage)
+        val updated = original.copyOf()
+        if (atoms.any { it.type == "mdat" && it.offset > moov.offset }) {
+            adjustM4aChunkOffsets(updated, metadata.size.toLong())
+        }
+        val updatedMoov = ByteArrayOutputStream().apply {
+            writeInt32(updated.size + metadata.size)
+            write(updated, 4, updated.size - 4)
+            write(metadata)
+        }.toByteArray()
+        val temporary = File(file.parentFile, "${file.name}.tags.tmp")
+        RandomAccessFile(file, "r").use { input ->
+            FileOutputStream(temporary, false).use { output ->
+                copyRange(input, output, 0, moov.offset)
+                output.write(updatedMoov)
+                copyRange(
+                    input,
+                    output,
+                    moov.offset + moov.size,
+                    file.length() - moov.offset - moov.size,
+                )
+            }
+        }
+        check(temporary.renameTo(file) || run {
+            file.delete()
+            temporary.renameTo(file)
+        }) { "无法替换带标签的 m4a 文件" }
+    }
+
+    private fun locateM4aAtoms(file: File): List<M4aAtom> {
+        val atoms = mutableListOf<M4aAtom>()
+        RandomAccessFile(file, "r").use { input ->
+            var offset = 0L
+            while (offset + 8 <= input.length()) {
+                input.seek(offset)
+                val size32 = Integer.toUnsignedLong(input.readInt())
+                val typeBytes = ByteArray(4)
+                input.readFully(typeBytes)
+                val type = typeBytes.decodeToString()
+                val headerSize = if (size32 == 1L) 16L else 8L
+                val size = when (size32) {
+                    0L -> input.length() - offset
+                    1L -> input.readLong()
+                    else -> size32
+                }
+                if (size < headerSize || offset + size > input.length()) break
+                atoms += M4aAtom(offset, size, type)
+                offset += size
+            }
+        }
+        return atoms
+    }
+
+    private fun copyRange(input: RandomAccessFile, output: FileOutputStream, offset: Long, length: Long) {
+        input.seek(offset)
+        var remaining = length
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (remaining > 0) {
+            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read < 0) error("读取 m4a 文件失败")
+            output.write(buffer, 0, read)
+            remaining -= read
+        }
+    }
+
+    private fun buildM4aMetadata(
+        title: String,
+        artists: String,
+        album: String,
+        coverImage: CoverImage?,
+    ): ByteArray {
+        val ilst = ByteArrayOutputStream()
+        ilst.writeM4aTextItem(byteArrayOf(0xA9.toByte(), 'n'.code.toByte(), 'a'.code.toByte(), 'm'.code.toByte()), title)
+        ilst.writeM4aTextItem(byteArrayOf(0xA9.toByte(), 'A'.code.toByte(), 'R'.code.toByte(), 'T'.code.toByte()), artists)
+        ilst.writeM4aTextItem(byteArrayOf(0xA9.toByte(), 'a'.code.toByte(), 'l'.code.toByte(), 'b'.code.toByte()), album)
+        coverImage?.let { ilst.writeM4aCoverItem(it) }
+        val handler = ByteArrayOutputStream().apply {
+            write(byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0))
+            write("mdir".encodeToByteArray())
+            write(ByteArray(12))
+            write(0)
+        }
+        val meta = atom(
+            "meta".encodeToByteArray(),
+            byteArrayOf(0, 0, 0, 0) + atom("hdlr".encodeToByteArray(), handler.toByteArray()) +
+                atom("ilst".encodeToByteArray(), ilst.toByteArray()),
+        )
+        return atom("udta".encodeToByteArray(), meta)
+    }
+
+    private fun ByteArrayOutputStream.writeM4aTextItem(type: ByteArray, value: String) {
+        if (value.isBlank()) return
+        write(atom(type, atom("data".encodeToByteArray(), byteArrayOf(0, 0, 0, 1, 0, 0, 0, 0) + value.encodeToByteArray())))
+    }
+
+    private fun ByteArrayOutputStream.writeM4aCoverItem(coverImage: CoverImage) {
+        if (coverImage.bytes.isEmpty()) return
+        val imageType = if (coverImage.mimeType.equals("image/png", ignoreCase = true)) 14 else 13
+        write(atom("covr".encodeToByteArray(), atom("data".encodeToByteArray(), byteArrayOf(0, 0, 0, imageType.toByte(), 0, 0, 0, 0) + coverImage.bytes)))
+    }
+
+    private fun atom(type: ByteArray, payload: ByteArray): ByteArray = ByteArrayOutputStream().apply {
+        writeInt32(payload.size + 8)
+        write(type)
+        write(payload)
+    }.toByteArray()
+
+    private fun adjustM4aChunkOffsets(bytes: ByteArray, delta: Long) {
+        visitM4aAtoms(bytes, 8, bytes.size) { type, payloadStart, payloadEnd ->
+            when (type) {
+                "stco" -> {
+                    if (payloadStart + 8 > payloadEnd) return@visitM4aAtoms
+                    val count = bytes.readInt32(payloadStart + 4)
+                    repeat(count.coerceAtMost((payloadEnd - payloadStart - 8) / 4)) { index ->
+                        val offset = payloadStart + 8 + index * 4
+                        bytes.writeInt32(offset, (bytes.readInt32(offset).toLong() + delta).toInt())
+                    }
+                }
+                "co64" -> {
+                    if (payloadStart + 8 > payloadEnd) return@visitM4aAtoms
+                    val count = bytes.readInt32(payloadStart + 4)
+                    repeat(count.coerceAtMost((payloadEnd - payloadStart - 8) / 8)) { index ->
+                        val offset = payloadStart + 8 + index * 8
+                        bytes.writeInt64(offset, bytes.readInt64(offset) + delta)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun visitM4aAtoms(bytes: ByteArray, start: Int, end: Int, visitor: (String, Int, Int) -> Unit) {
+        var offset = start
+        while (offset + 8 <= end) {
+            val size32 = bytes.readInt32(offset).toLong() and 0xFFFF_FFFFL
+            val type = bytes.copyOfRange(offset + 4, offset + 8).decodeToString()
+            val headerSize = if (size32 == 1L) 16 else 8
+            val size = if (size32 == 0L) end - offset else if (size32 == 1L) bytes.readInt64(offset + 8).toInt() else size32.toInt()
+            if (size < headerSize || offset + size > end) return
+            val payloadStart = offset + headerSize + if (type == "meta") 4 else 0
+            val payloadEnd = offset + size
+            visitor(type, offset + headerSize, payloadEnd)
+            if (type in M4A_CONTAINER_ATOMS && payloadStart < payloadEnd) {
+                visitM4aAtoms(bytes, payloadStart, payloadEnd, visitor)
+            }
+            offset += size
+        }
+    }
+
+    private fun ByteArray.readInt32(offset: Int): Int =
+        ((this[offset].toInt() and 0xFF) shl 24) or
+            ((this[offset + 1].toInt() and 0xFF) shl 16) or
+            ((this[offset + 2].toInt() and 0xFF) shl 8) or
+            (this[offset + 3].toInt() and 0xFF)
+
+    private fun ByteArray.readInt64(offset: Int): Long {
+        var value = 0L
+        repeat(8) { index -> value = (value shl 8) or (this[offset + index].toLong() and 0xFF) }
+        return value
+    }
+
+    private fun ByteArray.writeInt32(offset: Int, value: Int) {
+        this[offset] = (value ushr 24).toByte()
+        this[offset + 1] = (value ushr 16).toByte()
+        this[offset + 2] = (value ushr 8).toByte()
+        this[offset + 3] = value.toByte()
+    }
+
+    private fun ByteArray.writeInt64(offset: Int, value: Long) {
+        repeat(8) { index -> this[offset + index] = (value ushr (56 - index * 8)).toByte() }
+    }
+
+    private fun ByteArray.stripId3v2Tag(): ByteArray {
+        if (size < ID3_HEADER_SIZE || this[0] != 'I'.code.toByte() || this[1] != 'D'.code.toByte() || this[2] != '3'.code.toByte()) {
+            return this
+        }
+        val tagSize = readSynchsafeInt(6)
+        val footerSize = if (size > 5 && (this[5].toInt() and 0x10) != 0) ID3_HEADER_SIZE else 0
+        val start = (ID3_HEADER_SIZE + tagSize + footerSize).coerceAtMost(size)
+        return copyOfRange(start, size)
+    }
+
+    private fun ByteArray.readSynchsafeInt(offset: Int): Int {
+        return ((this[offset].toInt() and 0x7F) shl 21) or
+            ((this[offset + 1].toInt() and 0x7F) shl 14) or
+            ((this[offset + 2].toInt() and 0x7F) shl 7) or
+            (this[offset + 3].toInt() and 0x7F)
+    }
+
+    private fun buildId3v23Tag(
+        title: String,
+        artists: String,
+        album: String,
+        coverImage: CoverImage?,
+    ): ByteArray {
+        val frames = ByteArrayOutputStream()
+        frames.writeTextFrame("TIT2", title)
+        frames.writeTextFrame("TPE1", artists)
+        frames.writeTextFrame("TALB", album)
+        frames.writeApicFrame(coverImage)
+        val frameBytes = frames.toByteArray()
+        return ByteArrayOutputStream().apply {
+            write(byteArrayOf('I'.code.toByte(), 'D'.code.toByte(), '3'.code.toByte(), 3, 0, 0))
+            writeSynchsafeInt(frameBytes.size)
+            write(frameBytes)
+        }.toByteArray()
+    }
+
+    private fun ByteArrayOutputStream.writeTextFrame(id: String, value: String) {
+        if (value.isBlank()) return
+        val body = ByteArrayOutputStream().apply {
+            write(1)
+            write(value.toByteArray(Charsets.UTF_16))
+        }.toByteArray()
+        write(id.encodeToByteArray())
+        writeInt32(body.size)
+        write(byteArrayOf(0, 0))
+        write(body)
+    }
+
+    private fun ByteArrayOutputStream.writeApicFrame(coverImage: CoverImage?) {
+        if (coverImage == null || coverImage.bytes.isEmpty()) return
+        val body = ByteArrayOutputStream().apply {
+            write(0)
+            write(coverImage.mimeType.encodeToByteArray())
+            write(0)
+            write(3)
+            write(0)
+            write(coverImage.bytes)
+        }.toByteArray()
+        write("APIC".encodeToByteArray())
+        writeInt32(body.size)
+        write(byteArrayOf(0, 0))
+        write(body)
+    }
+
+    private fun loadCoverImage(coverUrl: String?): CoverImage? {
+        val imageUrl = coverUrl?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            val uri = Uri.parse(imageUrl)
+            var contentType: String? = null
+            val bytes = when (uri.scheme) {
+                "content", "file" -> context.contentResolver.openInputStream(uri)?.use {
+                    it.readBytesLimited(MAX_COVER_BYTES)
+                }
+                "http", "https" -> {
+                    val connection = URL(imageUrl).openConnection()
+                    connection.connectTimeout = COVER_CONNECT_TIMEOUT_MS
+                    connection.readTimeout = COVER_READ_TIMEOUT_MS
+                    contentType = connection.contentType
+                    connection.getInputStream().use { it.readBytesLimited(MAX_COVER_BYTES) }
+                }
+                else -> null
+            } ?: return@runCatching null
+            CoverImage(
+                mimeType = imageMimeType(imageUrl, contentType, bytes),
+                bytes = bytes,
+            )
+        }.getOrNull()
+    }
+
+    private fun InputStream.readBytesLimited(maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0
+        while (true) {
+            val read = read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) return ByteArray(0)
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
+    }
+
+    private fun imageMimeType(imageUrl: String, contentType: String?, bytes: ByteArray): String {
+        val normalizedContentType = contentType?.substringBefore(';')?.trim()?.lowercase()
+        if (normalizedContentType?.startsWith("image/") == true) return normalizedContentType
+        return when {
+            bytes.size >= 3 &&
+                bytes[0] == 0xFF.toByte() &&
+                bytes[1] == 0xD8.toByte() &&
+                bytes[2] == 0xFF.toByte() -> "image/jpeg"
+            bytes.size >= 8 &&
+                bytes[0] == 0x89.toByte() &&
+                bytes[1] == 'P'.code.toByte() &&
+                bytes[2] == 'N'.code.toByte() &&
+                bytes[3] == 'G'.code.toByte() -> "image/png"
+            bytes.size >= 12 &&
+                bytes[0] == 'R'.code.toByte() &&
+                bytes[1] == 'I'.code.toByte() &&
+                bytes[2] == 'F'.code.toByte() &&
+                bytes[3] == 'F'.code.toByte() &&
+                bytes[8] == 'W'.code.toByte() &&
+                bytes[9] == 'E'.code.toByte() &&
+                bytes[10] == 'B'.code.toByte() &&
+                bytes[11] == 'P'.code.toByte() -> "image/webp"
+            imageUrl.substringBefore('?').endsWith(".png", ignoreCase = true) -> "image/png"
+            imageUrl.substringBefore('?').endsWith(".webp", ignoreCase = true) -> "image/webp"
+            else -> "image/jpeg"
+        }
+    }
+
+    private fun ByteArrayOutputStream.writeInt32(value: Int) {
+        write((value ushr 24) and 0xFF)
+        write((value ushr 16) and 0xFF)
+        write((value ushr 8) and 0xFF)
+        write(value and 0xFF)
+    }
+
+    private fun ByteArrayOutputStream.writeSynchsafeInt(value: Int) {
+        write((value ushr 21) and 0x7F)
+        write((value ushr 14) and 0x7F)
+        write((value ushr 7) and 0x7F)
+        write(value and 0x7F)
+    }
+
+    private data class DownloadRecord(
+        val trackId: String,
+        val title: String,
+        val artists: String,
+        val album: String,
+        val source: String,
+        val uri: String,
+        val coverUrl: String?,
+        val durationMs: Long?,
+        val fileSize: Long,
+        val createdAt: Long,
+    )
+
+    private data class DownloadTarget(
+        val uri: Uri,
+        val fileName: String,
+        val mimeType: String,
+    )
+
+    private data class CoverImage(
+        val mimeType: String,
+        val bytes: ByteArray,
+    )
+
+    private data class M4aAtom(
+        val offset: Long,
+        val size: Long,
+        val type: String,
+    )
+
+    private companion object {
+        val M4S_EXTENSION_PATTERN = Regex("\\.m4s(?:[./?#]|$)", RegexOption.IGNORE_CASE)
+        val M4A_CONTAINER_ATOMS = setOf(
+            "moov", "trak", "mdia", "minf", "stbl", "edts", "dinf", "udta", "meta", "ilst",
+            "moof", "traf", "mvex",
+        )
+        private const val ID3_HEADER_SIZE = 10
+        private const val MAX_COVER_BYTES = 5 * 1024 * 1024
+        private const val COVER_CONNECT_TIMEOUT_MS = 10_000
+        private const val COVER_READ_TIMEOUT_MS = 15_000
+        private const val LYRICS_FOLDER = "lyrics"
+        private const val TAG = "FuoDownload"
+    }
+}

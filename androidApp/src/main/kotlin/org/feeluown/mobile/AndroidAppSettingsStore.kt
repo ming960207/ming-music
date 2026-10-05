@@ -1,0 +1,169 @@
+package org.feeluown.mobile
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+
+internal class AndroidLegacySettingsLoader(context: Context) {
+    private val preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    suspend fun load(): AppSettings = withContext(Dispatchers.IO) {
+        val rawHomeSection = preferences.getString(KEY_HOME_SECTION, null)
+        AppSettings(
+            onboardingCompleted = preferences.getBoolean(KEY_ONBOARDING_COMPLETED, false),
+            homeSection = homeSectionValue(rawHomeSection),
+            mineSection = mineSectionValue(rawHomeSection),
+            playlistFilter = enumValue(KEY_PLAYLIST_FILTER, PlaylistFilter.All),
+            localMusicViewMode = enumValue(KEY_LOCAL_MUSIC_VIEW_MODE, LocalMusicViewMode.All),
+            excludedLocalMusicDirectoryIds = readStringSet(KEY_EXCLUDED_LOCAL_MUSIC_DIRECTORY_IDS),
+            localMusicMinDurationSeconds = preferences.getInt(
+                KEY_LOCAL_MUSIC_MIN_DURATION_SECONDS,
+                DEFAULT_LOCAL_MUSIC_MIN_DURATION_SECONDS,
+            ),
+            searchScope = enumValue(KEY_SEARCH_SCOPE, SearchScope.All),
+            selectedSearchProviderId = preferences.getString(KEY_SELECTED_SEARCH_PROVIDER_ID, null),
+            selectedSettingsProviderId = preferences.getString(KEY_SELECTED_SETTINGS_PROVIDER_ID, null),
+            providerLoginMode = enumValue(KEY_PROVIDER_LOGIN_MODE, ProviderLoginMode.WebView),
+            providerCookieInputs = readCookieInputs(),
+            providerHeaderInputs = readHeaderInputs(),
+            enabledProviderIds = readStringSet(KEY_ENABLED_PROVIDER_IDS).ifEmpty { DEFAULT_ENABLED_PROVIDER_IDS },
+            providerOrderIds = readStringList(KEY_PROVIDER_ORDER_IDS).ifEmpty { DEFAULT_PROVIDER_ORDER_IDS },
+            searchProviderIds = readStringSet(KEY_SEARCH_PROVIDER_IDS),
+            recommendProviderIds = readStringSet(KEY_RECOMMEND_PROVIDER_IDS),
+            exploreProviderIds = readStringSet(KEY_EXPLORE_PROVIDER_IDS),
+            mineProviderIds = readStringSet(KEY_MINE_PROVIDER_IDS),
+            audioCacheLimitMb = preferences.getInt(KEY_AUDIO_CACHE_LIMIT_MB, DEFAULT_AUDIO_CACHE_LIMIT_MB),
+            imageCacheLimitMb = preferences.getInt(KEY_IMAGE_CACHE_LIMIT_MB, DEFAULT_IMAGE_CACHE_LIMIT_MB),
+            downloadParallelism = preferences.getInt(KEY_DOWNLOAD_PARALLELISM, DEFAULT_DOWNLOAD_PARALLELISM).coerceIn(1, 5),
+            wifiAudioQualityPolicy = enumValue(KEY_WIFI_AUDIO_QUALITY_POLICY, DEFAULT_WIFI_AUDIO_QUALITY_POLICY),
+            cellularAudioQualityPolicy = enumValue(
+                KEY_CELLULAR_AUDIO_QUALITY_POLICY,
+                DEFAULT_CELLULAR_AUDIO_QUALITY_POLICY,
+            ),
+            unavailablePlaybackPolicy = enumValue(
+                KEY_UNAVAILABLE_PLAYBACK_POLICY,
+                DEFAULT_UNAVAILABLE_PLAYBACK_POLICY,
+            ),
+            smartReplacementProviderIds = readStringSet(KEY_SMART_REPLACEMENT_PROVIDER_IDS),
+            smartReplacementMinScore = preferences.getFloat(
+                KEY_SMART_REPLACEMENT_MIN_SCORE,
+                DEFAULT_SMART_REPLACEMENT_MIN_SCORE.toFloat(),
+            ).toDouble(),
+            pauseOnOtherAppPlayback = preferences.getBoolean(
+                KEY_PAUSE_ON_OTHER_APP_PLAYBACK,
+                DEFAULT_PAUSE_ON_OTHER_APP_PLAYBACK,
+            ),
+            lyricFontSize = enumValue(KEY_LYRIC_FONT_SIZE, LyricFontSize.Small),
+            themeMode = enumValue(KEY_THEME_MODE, ThemeMode.System),
+            themeColorScheme = enumValue(KEY_THEME_COLOR_SCHEME, ThemeColorScheme.Dynamic),
+        )
+    }
+
+    private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T {
+        val raw = preferences.getString(key, null) ?: return fallback
+        return runCatching { enumValueOf<T>(raw) }.getOrDefault(fallback)
+    }
+
+    private fun homeSectionValue(raw: String?): HomeSection {
+        if (raw == "Local") return HomeSection.Mine
+        return runCatching { enumValueOf<HomeSection>(raw.orEmpty()) }.getOrDefault(HomeSection.Recommend)
+    }
+
+    private fun mineSectionValue(rawHomeSection: String?): MineSection {
+        if (rawHomeSection == "Local") return MineSection.LocalMusic
+        return enumValue(KEY_MINE_SECTION, MineSection.Playlists)
+    }
+
+    private fun readCookieInputs(): Map<String, String> {
+        val raw = preferences.getString(KEY_PROVIDER_COOKIE_INPUTS, null).orEmpty()
+        if (raw.isBlank()) return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val value = json.optString(key)
+                    if (key.isNotBlank() && value.isNotBlank()) {
+                        put(key, value)
+                    }
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+
+    private fun readHeaderInputs(): Map<String, ProviderHeaderInput> {
+        val raw = preferences.getString(KEY_PROVIDER_HEADER_INPUTS, null).orEmpty()
+        if (raw.isBlank()) return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val providerId = keys.next()
+                    val value = json.optJSONObject(providerId) ?: continue
+                    val input = ProviderHeaderInput(
+                        authorization = value.optString("authorization"),
+                        cookie = value.optString("cookie"),
+                    )
+                    if (providerId.isNotBlank() && (input.authorization.isNotBlank() || input.cookie.isNotBlank())) {
+                        put(providerId, input)
+                    }
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun readStringSet(key: String): Set<String> {
+        return preferences.getStringSet(key, emptySet()).orEmpty().filter { it.isNotBlank() }.toSet()
+    }
+
+    private fun readStringList(key: String): List<String> {
+        val raw = preferences.getString(key, null).orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            List(array.length()) { index -> array.optString(index) }
+                .filter { it.isNotBlank() }
+                .distinct()
+        }.getOrDefault(emptyList())
+    }
+
+    private companion object {
+        private const val PREFS_NAME = "fuo_settings"
+        private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        private const val KEY_HOME_SECTION = "home_section"
+        private const val KEY_MINE_SECTION = "mine_section"
+        private const val KEY_PLAYLIST_FILTER = "playlist_filter"
+        private const val KEY_LOCAL_MUSIC_VIEW_MODE = "local_music_view_mode"
+        private const val KEY_EXCLUDED_LOCAL_MUSIC_DIRECTORY_IDS = "excluded_local_music_directory_ids"
+        private const val KEY_LOCAL_MUSIC_MIN_DURATION_SECONDS = "local_music_min_duration_seconds"
+        private const val KEY_SEARCH_SCOPE = "search_scope"
+        private const val KEY_SELECTED_SEARCH_PROVIDER_ID = "selected_search_provider_id"
+        private const val KEY_SELECTED_SETTINGS_PROVIDER_ID = "selected_settings_provider_id"
+        private const val KEY_PROVIDER_LOGIN_MODE = "provider_login_mode"
+        private const val KEY_PROVIDER_COOKIE_INPUTS = "provider_cookie_inputs"
+        private const val KEY_PROVIDER_HEADER_INPUTS = "provider_header_inputs"
+        private const val KEY_ENABLED_PROVIDER_IDS = "enabled_provider_ids"
+        private const val KEY_PROVIDER_ORDER_IDS = "provider_order_ids"
+        private const val KEY_SEARCH_PROVIDER_IDS = "search_provider_ids"
+        private const val KEY_RECOMMEND_PROVIDER_IDS = "recommend_provider_ids"
+        private const val KEY_EXPLORE_PROVIDER_IDS = "explore_provider_ids"
+        private const val KEY_MINE_PROVIDER_IDS = "mine_provider_ids"
+        private const val KEY_AUDIO_CACHE_LIMIT_MB = "audio_cache_limit_mb"
+        private const val KEY_IMAGE_CACHE_LIMIT_MB = "image_cache_limit_mb"
+        private const val KEY_DOWNLOAD_PARALLELISM = "download_parallelism"
+        private const val KEY_WIFI_AUDIO_QUALITY_POLICY = "wifi_audio_quality_policy"
+        private const val KEY_CELLULAR_AUDIO_QUALITY_POLICY = "cellular_audio_quality_policy"
+        private const val KEY_UNAVAILABLE_PLAYBACK_POLICY = "unavailable_playback_policy"
+        private const val KEY_SMART_REPLACEMENT_PROVIDER_IDS = "smart_replacement_provider_ids"
+        private const val KEY_SMART_REPLACEMENT_MIN_SCORE = "smart_replacement_min_score"
+        private const val KEY_PAUSE_ON_OTHER_APP_PLAYBACK = "pause_on_other_app_playback"
+        private const val KEY_LYRIC_FONT_SIZE = "lyric_font_size"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_THEME_COLOR_SCHEME = "theme_color_scheme"
+    }
+}

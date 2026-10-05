@@ -1,0 +1,175 @@
+package org.feeluown.mobile
+
+import android.content.Context
+import android.net.Uri
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+
+@OptIn(UnstableApi::class)
+object AndroidResourceCache {
+    private const val PREFS_NAME = "fuo_resource_cache"
+    private const val KEY_AUDIO_LIMIT_BYTES = "audio_limit_bytes"
+    private const val KEY_IMAGE_LIMIT_BYTES = "image_limit_bytes"
+    private const val CACHE_ROOT = "fuo_provider_cache"
+    private const val AUDIO_DIR = "audio"
+    private const val IMAGE_DIR = "images"
+    private const val IMAGE_EXTENSION = ".img"
+    private const val COVER_LOG_TAG = "CoverArt"
+
+    private val lock = Any()
+    private var audioCache: SimpleCache? = null
+
+    fun audioCache(context: Context): SimpleCache {
+        val limit = limit(context).audioMaxBytes
+        synchronized(lock) {
+            audioCache?.let { return it }
+            return SimpleCache(
+                audioDir(context).apply { mkdirs() },
+                LeastRecentlyUsedCacheEvictor(limit),
+                StandaloneDatabaseProvider(context.applicationContext),
+            ).also { audioCache = it }
+        }
+    }
+
+    fun usage(context: Context): CacheUsage {
+        val audioBytes = synchronized(lock) {
+            audioCache?.cacheSpace ?: audioDir(context).sizeBytes()
+        }
+        return CacheUsage(
+            audioBytes = audioBytes,
+            imageBytes = imageDir(context).sizeBytes(),
+        )
+    }
+
+    fun updateLimit(context: Context, limit: CacheLimit) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_AUDIO_LIMIT_BYTES, limit.audioMaxBytes)
+            .putLong(KEY_IMAGE_LIMIT_BYTES, limit.imageMaxBytes)
+            .apply()
+        trimImages(context)
+    }
+
+    fun clearAll(context: Context) {
+        synchronized(lock) {
+            val cache = audioCache
+            if (cache == null) {
+                audioDir(context).deleteRecursively()
+            } else {
+                cache.keys.toList().forEach { key ->
+                    cache.removeResource(key)
+                }
+            }
+        }
+        imageDir(context).deleteRecursively()
+        rootDir(context).mkdirs()
+    }
+
+    fun cachedImage(context: Context, imageUrl: String): File? {
+        val uri = Uri.parse(imageUrl)
+        if (uri.scheme !in setOf("http", "https")) return null
+        val host = uri.host.orEmpty().ifBlank { "unknown" }
+        val target = File(imageDir(context).apply { mkdirs() }, "${sha256(imageUrl)}$IMAGE_EXTENSION")
+        if (target.exists() && target.length() > 0L) {
+            target.setLastModified(System.currentTimeMillis())
+            return target
+        }
+        if (target.exists()) {
+            AppLogger.w(COVER_LOG_TAG, "Image cache entry is empty host=$host stage=disk-cache")
+            target.delete()
+        }
+        val temp = File(target.parentFile, "${target.name}.tmp")
+        return try {
+            val connection = URL(imageUrl).openConnection().apply {
+                connectTimeout = 15_000
+                readTimeout = 20_000
+            }
+            try {
+                if (connection is HttpURLConnection) {
+                    val status = connection.responseCode
+                    if (status !in 200..299) {
+                        AppLogger.w(COVER_LOG_TAG, "Image request failed host=$host stage=disk-download httpStatus=$status")
+                        temp.delete()
+                        return null
+                    }
+                }
+                connection.getInputStream().use { input ->
+                    temp.outputStream().use { output -> input.copyTo(output) }
+                }
+            } finally {
+                (connection as? HttpURLConnection)?.disconnect()
+            }
+            if (temp.length() <= 0L) {
+                AppLogger.w(COVER_LOG_TAG, "Image response is empty host=$host stage=disk-download")
+                temp.delete()
+                null
+            } else {
+                if (target.exists()) target.delete()
+                if (temp.renameTo(target)) {
+                    target.setLastModified(System.currentTimeMillis())
+                    trimImages(context)
+                    target
+                } else {
+                    AppLogger.w(COVER_LOG_TAG, "Image cache write failed host=$host stage=rename")
+                    temp.delete()
+                    null
+                }
+            }
+        } catch (exception: Exception) {
+            temp.delete()
+            // Exception messages and stack traces can contain signed URLs or authentication tokens.
+            AppLogger.w(COVER_LOG_TAG, "Image download failed host=$host stage=disk-download error=${exception.javaClass.simpleName}")
+            null
+        }
+    }
+
+    private fun trimImages(context: Context) {
+        val maxBytes = limit(context).imageMaxBytes
+        if (maxBytes <= 0L) {
+            imageDir(context).deleteRecursively()
+            return
+        }
+        val files = imageDir(context).listFiles()?.filter { it.isFile }.orEmpty()
+        var total = files.sumOf { it.length() }
+        files.sortedBy { it.lastModified() }.forEach { file ->
+            if (total <= maxBytes) return
+            val size = file.length()
+            if (file.delete()) total -= size
+        }
+    }
+
+    private fun limit(context: Context): CacheLimit {
+        val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return CacheLimit(
+            audioMaxBytes = preferences.getLong(
+                KEY_AUDIO_LIMIT_BYTES, DEFAULT_AUDIO_CACHE_LIMIT_MB.toLong() * 1024L * 1024L),
+            imageMaxBytes = preferences.getLong(KEY_IMAGE_LIMIT_BYTES, DEFAULT_IMAGE_CACHE_LIMIT_MB.toLong() * 1024L * 1024L),
+        )
+    }
+
+    private fun rootDir(context: Context): File = File(context.cacheDir, CACHE_ROOT)
+
+    private fun audioDir(context: Context): File = File(rootDir(context), AUDIO_DIR)
+
+    private fun imageDir(context: Context): File = File(rootDir(context), IMAGE_DIR)
+
+    private fun File.sizeBytes(): Long {
+        if (!exists()) return 0L
+        if (isFile) return length()
+        return walkTopDown()
+            .filter { it.isFile }
+            .sumOf { it.length() }
+    }
+
+    private fun sha256(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray())
+        return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+}

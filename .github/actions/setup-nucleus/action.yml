@@ -1,0 +1,232 @@
+name: Setup Nucleus
+description: Setup the JDK, native build prerequisites, Gradle, GraalVM cache, and Node.js for Nucleus builds
+
+inputs:
+  java-version:
+    description: JDK version used to run Gradle
+    required: false
+    default: '25'
+  java-package:
+    description: JDK package variant
+    required: false
+    default: 'jdk'
+  packaging-tools:
+    description: Install Linux packaging tools
+    required: false
+    default: 'true'
+  setup-gradle:
+    description: Configure Gradle caching
+    required: false
+    default: 'true'
+  graalvm:
+    description: Prepare platform native-image prerequisites and cache the Nucleus GraalVM toolchain
+    required: false
+    default: 'false'
+  graalvm-version:
+    description: GraalVM toolchain version used on Windows and Linux
+    required: false
+    default: '25i3'
+  macos-graalvm-version:
+    description: GraalVM toolchain version used on macOS; keep separate for Native Image Mach-O A/B testing
+    required: false
+    default: '25'
+  graalvm-distribution:
+    description: GraalVM distribution cache-key component
+    required: false
+    default: 'community'
+  setup-node:
+    description: Setup Node.js for Nucleus packaging
+    required: false
+    default: 'true'
+  node-version:
+    description: Node.js version
+    required: false
+    default: '24'
+
+outputs:
+  java-home:
+    description: Path to the configured JDK
+    value: ${{ steps.set-java-home.outputs.java-home }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: ${{ runner.os == 'Windows' && 'microsoft' || 'temurin' }}
+        java-version: ${{ inputs.java-version }}
+        java-package: ${{ inputs.java-package }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Resolve GraalVM toolchain version
+      if: inputs.graalvm == 'true'
+      id: graalvm-version
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "$RUNNER_OS" == "macOS" ]]; then
+          resolved="${{ inputs.macos-graalvm-version }}"
+          echo "FUOEVOLVE_GRAALVM_VERSION=$resolved" >> "$GITHUB_ENV"
+        else
+          resolved="${{ inputs.graalvm-version }}"
+        fi
+        echo "version=$resolved" >> "$GITHUB_OUTPUT"
+        echo "Resolved GraalVM toolchain version: $resolved"
+
+    - name: Select Xcode 26 runner toolchain
+      if: runner.os == 'macOS' && inputs.graalvm == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        developer_dir=/Applications/Xcode_26.0.app/Contents/Developer
+        test -d "$developer_dir"
+        sudo xcode-select -s "$developer_dir"
+        export DEVELOPER_DIR="$developer_dir"
+        echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+
+        echo "Selected Xcode toolchain:"
+        xcodebuild -version
+        echo "xcode-select=$(xcode-select -p)"
+        echo "developer-dir-real=$(cd "$developer_dir" && pwd -P)"
+        echo "path-clang=$(command -v clang)"
+        echo "xcrun-clang=$(xcrun --find clang)"
+        echo "macos-sdk=$(xcrun --sdk macosx --show-sdk-path)"
+        for tool in strip install_name_tool otool vtool; do
+          echo "$tool=$(xcrun --find "$tool")"
+        done
+
+        # Keep the runner PATH intact. Nucleus compileGraalvmStubs invokes `clang` directly;
+        # prepending XcodeDefault.xctoolchain/usr/bin bypasses the runner's /usr/bin developer-tool
+        # shim and can lose SDK resolution. All FuoEvolve Mach-O workaround scripts use xcrun
+        # explicitly, while DEVELOPER_DIR keeps native-image and Apple tools on the selected Xcode.
+        probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/fuoevolve-clang-probe.XXXXXX")"
+        trap 'rm -rf "$probe_dir"' EXIT
+        cat > "$probe_dir/nucleus-stub-probe.c" <<'EOF'
+        #include <dlfcn.h>
+        void *fuoevolve_nucleus_stub_probe(void) {
+            return dlsym(RTLD_DEFAULT, "InitializeEncoding");
+        }
+        EOF
+        clang -c "$probe_dir/nucleus-stub-probe.c" -o "$probe_dir/nucleus-stub-probe.o"
+        file "$probe_dir/nucleus-stub-probe.o"
+        rm -rf "$probe_dir"
+        trap - EXIT
+
+        mkdir -p "$HOME/.gradle/init.d"
+        cp "$GITHUB_WORKSPACE/.github/gradle/macos-native-image-workaround.init.gradle" \
+          "$HOME/.gradle/init.d/fuoevolve-macos-native-image-workaround.gradle"
+
+    # Keep the MSVC setup free of JavaScript actions so it cannot inherit an old Node runtime.
+    # Capture the environment produced by VsDevCmd.bat and persist it for later Gradle/native-image steps.
+    - name: Set up MSVC
+      if: runner.os == 'Windows' && inputs.graalvm == 'true'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (-not (Test-Path $vswhere)) {
+          throw "vswhere.exe was not found at $vswhere"
+        }
+        $installationPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+        if (-not $installationPath) {
+          throw 'Visual Studio with the x64 C++ toolchain was not found'
+        }
+        $vsDevCmd = Join-Path $installationPath 'Common7\Tools\VsDevCmd.bat'
+        if (-not (Test-Path $vsDevCmd)) {
+          throw "VsDevCmd.bat was not found at $vsDevCmd"
+        }
+        $environment = & cmd.exe /d /s /c "`"$vsDevCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && set"
+        if ($LASTEXITCODE -ne 0) {
+          throw "VsDevCmd.bat failed with exit code $LASTEXITCODE"
+        }
+        foreach ($line in $environment) {
+          if ($line -match '^([^=]+)=(.*)$') {
+            $name = $Matches[1]
+            $value = $Matches[2]
+            "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+        }
+
+    - name: Cache GraalVM toolchain
+      if: inputs.graalvm == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/.gradle/nucleus/graalvm
+        # Terminate the version token and use a new namespace so `25` cannot prefix-match the
+        # previous `25i3` cache. The macOS A/B must provision the requested LTS line cleanly.
+        key: graalvm-toolchain-v2-${{ runner.os }}-${{ runner.arch }}-${{ inputs.graalvm-distribution }}-${{ steps.graalvm-version.outputs.version }}-exact
+
+    - name: Set java-home output
+      id: set-java-home
+      shell: bash
+      run: echo "java-home=$JAVA_HOME" >> "$GITHUB_OUTPUT"
+
+    - name: Verify JDK
+      shell: bash
+      run: java -version
+
+    - name: Prepare desktop version metadata
+      shell: bash
+      run: |
+        set -euo pipefail
+        version_pattern='^[0-9]+(\.[0-9]+){2,3}$'
+        if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+          release_version="${GITHUB_REF_NAME:-}"
+          if [[ ! "$release_version" =~ $version_pattern ]]; then
+            echo "::error::Release tag must be a 3- or 4-component numeric version: $release_version" >&2
+            exit 1
+          fi
+          channel=stable
+        else
+          release_version="$(
+            (git tag --merged HEAD --list '[0-9]*' || true) |
+              grep -E "$version_pattern" |
+              sort -V |
+              tail -n 1
+          )"
+          release_version="${release_version:-0.1.0}"
+          channel=canary
+        fi
+
+        IFS=. read -r version_major version_minor version_patch _ <<< "$release_version"
+        package_version="${version_major}.${version_minor}.${version_patch}"
+        commit_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+        if [[ "$channel" == "stable" ]]; then
+          version_label="$release_version"
+        else
+          version_label="${release_version}-canary+${commit_sha:0:8}"
+        fi
+
+        {
+          echo "FUOEVOLVE_PACKAGE_VERSION=$package_version"
+          echo "FUOEVOLVE_DESKTOP_CHANNEL=$channel"
+          echo "FUOEVOLVE_DESKTOP_VERSION_LABEL=$version_label"
+          echo "FUOEVOLVE_COMMIT_SHA=$commit_sha"
+        } >> "$GITHUB_ENV"
+        echo "Desktop version: $version_label ($channel, package=$package_version, $commit_sha)"
+
+    - name: Install packaging tools (Linux)
+      if: runner.os == 'Linux' && inputs.packaging-tools == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y xvfb rpm fakeroot libarchive-tools libdbus-1-dev libglib2.0-dev libx11-dev libgtk-3-dev patchelf
+        if ! pgrep -x Xvfb >/dev/null 2>&1; then
+          Xvfb :99 -screen 0 1280x1024x24 >/tmp/xvfb.log 2>&1 &
+        fi
+        echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+    - name: Set up Gradle
+      if: inputs.setup-gradle == 'true'
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        add-job-summary: never
+
+    - name: Set up Node.js
+      if: inputs.setup-node == 'true'
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}

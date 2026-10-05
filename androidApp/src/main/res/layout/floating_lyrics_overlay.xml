@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="10dp"
+    android:background="#D9202020">
+
+    <TextView
+        android:id="@+id/floatingLyricsText"
+        android:layout_width="280dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:maxLines="2"
+        android:textColor="#FFFFFFFF"
+        android:textSize="16sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageButton android:id="@+id/floatingLyricsPrevious" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="上一首" android:src="@android:drawable/ic_media_previous" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
+        <ImageButton android:id="@+id/floatingLyricsToggle" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="播放或暂停" android:src="@android:drawable/ic_media_play" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
+        <ImageButton android:id="@+id/floatingLyricsNext" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="下一首" android:src="@android:drawable/ic_media_next" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
+        <ImageButton android:id="@+id/floatingLyricsClose" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="关闭悬浮歌词" android:src="@android:drawable/ic_menu_close_clear_cancel" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
+    </LinearLayout>
+</LinearLayout>

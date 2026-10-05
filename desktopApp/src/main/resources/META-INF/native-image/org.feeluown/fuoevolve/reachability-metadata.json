@@ -1,0 +1,155 @@
+{
+  "reflection": [
+    {
+      "type": {
+        "proxy": [
+          "com.microsoft.credentialstorage.implementation.posix.libsecret.LibSecretLibrary"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.microsoft.credentialstorage.implementation.posix.internal.GLibLibrary"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.microsoft.credentialstorage.implementation.windows.CredAdvapi32"
+        ]
+      }
+    },
+    {
+      "type": "com.microsoft.credentialstorage.implementation.windows.CredAdvapi32$PCREDENTIAL",
+      "fields": [
+        { "name": "credential" }
+      ]
+    },
+    {
+      "type": "com.microsoft.credentialstorage.implementation.windows.CredAdvapi32$CREDENTIAL",
+      "fields": [
+        { "name": "Flags" },
+        { "name": "Type" },
+        { "name": "TargetName" },
+        { "name": "Comment" },
+        { "name": "LastWritten" },
+        { "name": "CredentialBlobSize" },
+        { "name": "CredentialBlob" },
+        { "name": "Persist" },
+        { "name": "AttributeCount" },
+        { "name": "Attributes" },
+        { "name": "TargetAlias" },
+        { "name": "UserName" }
+      ]
+    },
+    {
+      "type": "com.microsoft.credentialstorage.implementation.windows.CredAdvapi32$CREDENTIAL_ATTRIBUTE",
+      "allPublicConstructors": true,
+      "fields": [
+        { "name": "Keyword" },
+        { "name": "Flags" },
+        { "name": "ValueSize" },
+        { "name": "Value" }
+      ]
+    },
+    {
+      "type": "com.microsoft.credentialstorage.implementation.windows.CredAdvapi32$CREDENTIAL_ATTRIBUTE$ByReference",
+      "allPublicConstructors": true
+    },
+    {
+      "type": "com.sun.jna.platform.win32.WinBase$FILETIME",
+      "allPublicConstructors": true,
+      "fields": [
+        { "name": "dwLowDateTime" },
+        { "name": "dwHighDateTime" }
+      ]
+    },
+    {
+      "type": "com.sun.jna.LastErrorException",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "androidx.datastore.preferences.PreferencesProto$PreferenceMap",
+      "fields": [
+        {
+          "name": "preferences_",
+          "allowUnsafeAccess": true
+        }
+      ]
+    },
+    {
+      "type": "androidx.datastore.preferences.PreferencesProto$Value",
+      "fields": [
+        {
+          "name": "valueCase_",
+          "allowUnsafeAccess": true
+        },
+        {
+          "name": "value_",
+          "allowUnsafeAccess": true
+        }
+      ]
+    },
+    {
+      "type": "androidx.datastore.preferences.PreferencesProto$StringSet",
+      "fields": [
+        {
+          "name": "strings_",
+          "allowUnsafeAccess": true
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "glob": "fuoevolve-desktop-version.properties"
+    }
+  ],
+  "foreign": {
+    "downcalls": [
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "jint",
+          "void*",
+          "void*",
+          "jint",
+          "jint",
+          "jint",
+          "jint",
+          "jint",
+          "void*",
+          "void*",
+          "void*",
+          "void*"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": ["void*", "jint"]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": ["void*"]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": ["jint", "jint", "jint", "jint"]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": ["void*", "void*", "jint"]
+      }
+    ]
+  }
+}

@@ -1,0 +1,493 @@
+package org.feeluown.mobile.nucleus
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.rememberWindowState
+import dev.nucleusframework.application.DecoratedWindow
+import dev.nucleusframework.application.NucleusBackend
+import dev.nucleusframework.application.NucleusDecoratedWindowScope
+import dev.nucleusframework.application.nucleusApplication
+import dev.nucleusframework.composenativetray.tray.api.Tray
+import dev.nucleusframework.window.NucleusDecoratedWindowTheme
+import dev.nucleusframework.window.TitleBarPlacement
+import dev.nucleusframework.window.WindowBackground
+import dev.nucleusframework.window.WindowControls
+import dev.nucleusframework.window.WindowControlsRenderer
+import dev.nucleusframework.window.WindowScaffold
+import dev.nucleusframework.window.styling.TitleBarColors
+import dev.nucleusframework.window.styling.TitleBarMetrics
+import dev.nucleusframework.window.styling.TitleBarStyle
+import dev.nucleusframework.window.windowDragArea
+import java.io.File
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import org.feeluown.mobile.AppLogger
+import org.feeluown.mobile.DesktopAppHost
+import org.feeluown.mobile.DesktopOpenGlRenderContextParameters
+import org.feeluown.mobile.MusicTrack
+import org.feeluown.mobile.PlaybackPayload
+import org.feeluown.mobile.PlayerStatus
+import org.feeluown.mobile.ProvideDesktopVideoFullscreenHandler
+import org.feeluown.mobile.TrackSourceType
+import org.feeluown.mobile.createDesktopPlaybackResumeStore
+import org.feeluown.mobile.desktop.DesktopMpvPlaybackEngine
+import org.feeluown.mobile.desktop.createCheckedDesktopFfmMpvNativeApi
+import org.feeluown.mobile.desktop.createDesktopFfmAudioCaptureApi
+import org.feeluown.mobile.desktop.createDesktopNativeTextFileDialogProvider
+import org.feeluown.mobile.desktop.createDesktopRuntimeListeningHistorySink
+import org.feeluown.mobile.desktop.createDesktopRuntimeLocalMusicRepository
+import org.feeluown.mobile.desktop.createDesktopSecureProviderCredentialStore
+import org.feeluown.mobile.desktop.createPersistentDesktopPlaybackEngine
+import org.feeluown.mobile.installDesktopAppLogger
+import org.feeluown.mobile.installDesktopListeningHistorySinkFactory
+import org.feeluown.mobile.installDesktopLocalMusicRepositoryFactory
+import org.feeluown.mobile.installDesktopPlatformVideoSurface
+import org.feeluown.mobile.installDesktopPlaybackEngineFactory
+import org.feeluown.mobile.installDesktopPlaybackSessionIntegrationFactory
+import org.feeluown.mobile.installDesktopProviderCredentialStoreFactory
+import org.feeluown.mobile.installDesktopTextFileDialogProviderFactory
+import org.feeluown.mobile.installFallbackOAuthDeviceCodeAssistant
+import org.feeluown.mobile.playback.api.PlaybackSessionStatus
+
+private const val SMOKE_ENV = "FUOEVOLVE_NUCLEUS_POC_SMOKE"
+private const val PLAYBACK_SMOKE_ENV = "FUOEVOLVE_NUCLEUS_PLAYBACK_SMOKE"
+private const val LINUX_TRAY_PROBE_TIMEOUT_SECONDS = 1L
+
+@Suppress("DEPRECATION")
+fun main(args: Array<String>) {
+    configurePackagedNativeRuntime()
+    installDesktopAppLogger()
+    val mpvNativeApi = createCheckedDesktopFfmMpvNativeApi()
+    val audioCaptureApi = createDesktopFfmAudioCaptureApi()
+
+    val activation = NucleusExternalActivation.open(args) ?: return
+    val trayPlaybackController = NucleusTrayPlaybackController()
+    val oauthDeviceCodeAssistant = NucleusOAuthDeviceCodeAssistant()
+    installFallbackOAuthDeviceCodeAssistant(oauthDeviceCodeAssistant)
+    installDesktopProviderCredentialStoreFactory(::createDesktopSecureProviderCredentialStore)
+    installDesktopListeningHistorySinkFactory(::createDesktopRuntimeListeningHistorySink)
+    installDesktopLocalMusicRepositoryFactory(::createDesktopRuntimeLocalMusicRepository)
+    installDesktopPlatformVideoSurface(createNucleusMpvVideoSurface(mpvNativeApi))
+    installDesktopTextFileDialogProviderFactory {
+        createDesktopNativeTextFileDialogProvider(requireNativeLinuxPortal = true)
+    }
+    installDesktopPlaybackEngineFactory {
+        createPersistentDesktopPlaybackEngine(
+            delegate = DesktopMpvPlaybackEngine { listener -> FfmMpvBackend(listener, mpvNativeApi) },
+            resumeStore = createDesktopPlaybackResumeStore(),
+        )
+    }
+
+    val smokeMode = System.getenv(SMOKE_ENV) == "1"
+    val playbackSmokeFile = System.getenv(PLAYBACK_SMOKE_ENV)
+        ?.takeIf(String::isNotBlank)
+        ?.let(::File)
+
+    nucleusApplication(
+        args = args,
+        backend = NucleusBackend.Tao,
+        // Keep Nucleus' public lock/watcher implementation, but own the restore payload so ordinary
+        // file-association paths and taskbar media actions can be forwarded alongside URI deep links.
+        enableSingleInstance = false,
+    ) {
+        val uiScope = rememberCoroutineScope()
+        val appIcon = painterResource("ic_launcher.png")
+        val trayPlaybackState by trayPlaybackController.state.collectAsState()
+        var windowVisible by remember { mutableStateOf(true) }
+        var activationRequest by remember { mutableStateOf(0L) }
+        val trayAvailable = remember(smokeMode, playbackSmokeFile) {
+            !smokeMode && playbackSmokeFile == null && nucleusTrayCanRestoreWindow().also { available ->
+                if (!available) {
+                    AppLogger.w(
+                        "DesktopTray",
+                        "Nucleus tray is unavailable; closing the main window will keep it visible",
+                    )
+                }
+            }
+        }
+        val requestExit = { exitApplication() }
+        val showWindow = {
+            windowVisible = true
+            activationRequest += 1L
+        }
+        val appExternalInputs = remember(activation, trayPlaybackController) {
+            activation.inputs.filter { input ->
+                val action = nucleusDesktopMediaAction(input)
+                if (action != null) {
+                    trayPlaybackController.handle(action)
+                    false
+                } else {
+                    true
+                }
+            }
+        }
+
+        onDeepLink { uri ->
+            activation.emitInput(uri.toString())
+            uiScope.launch { showWindow() }
+        }
+
+        LaunchedEffect(activation) {
+            activation.focusRequests.collect { showWindow() }
+        }
+
+        if (!smokeMode && playbackSmokeFile == null) {
+            LaunchedEffect(Unit) {
+                installWindowsPlaybackJumpList()
+            }
+        }
+
+        installDesktopPlaybackSessionIntegrationFactory { playbackSession ->
+            val systemMediaSession = NucleusSystemMediaSession(
+                playbackSession = playbackSession,
+                onRaise = { uiScope.launch { showWindow() } },
+                onQuit = { uiScope.launch { requestExit() } },
+                onOpenUri = { uri ->
+                    activation.emitInput(uri)
+                    uiScope.launch { showWindow() }
+                },
+            )
+            val trayBinding = trayPlaybackController.bind(playbackSession)
+            AutoCloseable {
+                trayBinding.close()
+                systemMediaSession.close()
+            }
+        }
+
+        if (trayAvailable) {
+            val playPauseIcon = if (trayPlaybackState.status == PlaybackSessionStatus.Playing) {
+                Icons.Default.Pause
+            } else {
+                Icons.Default.PlayArrow
+            }
+            Tray(
+                icon = appIcon,
+                tooltip = "FuoEvolve",
+                primaryAction = { uiScope.launch { showWindow() } },
+            ) {
+                Item(
+                    label = trayPlaybackTrackLabel(trayPlaybackState),
+                    icon = Icons.Default.MusicNote,
+                    isEnabled = false,
+                )
+                Divider()
+                Item(
+                    label = trayPlaybackToggleLabel(trayPlaybackState),
+                    icon = playPauseIcon,
+                    isEnabled = trayPlaybackCanToggle(trayPlaybackState),
+                ) {
+                    uiScope.launch { trayPlaybackController.toggle() }
+                }
+                Item(
+                    label = "上一首",
+                    icon = Icons.Default.SkipPrevious,
+                    isEnabled = trayPlaybackState.canGoPrevious,
+                ) {
+                    uiScope.launch { trayPlaybackController.previous() }
+                }
+                Item(
+                    label = "下一首",
+                    icon = Icons.Default.SkipNext,
+                    isEnabled = trayPlaybackState.canGoNext,
+                ) {
+                    uiScope.launch { trayPlaybackController.next() }
+                }
+                Divider()
+                Item(
+                    label = if (windowVisible) "隐藏主窗口" else "显示主窗口",
+                    icon = if (windowVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                ) {
+                    uiScope.launch {
+                        if (windowVisible) {
+                            windowVisible = false
+                        } else {
+                            showWindow()
+                        }
+                    }
+                }
+                Item(
+                    label = "退出",
+                    icon = Icons.Default.ExitToApp,
+                ) {
+                    uiScope.launch { requestExit() }
+                }
+            }
+        }
+
+        DecoratedWindow(
+            onCloseRequest = {
+                if (trayAvailable) {
+                    windowVisible = false
+                }
+            },
+            visible = windowVisible,
+            state = rememberWindowState(size = DpSize(1280.dp, 800.dp)),
+            minimumSize = DpSize(900.dp, 600.dp),
+            title = "FuoEvolve",
+            icon = appIcon,
+        ) {
+            val clipboardManager = LocalClipboardManager.current
+            DisposableEffect(oauthDeviceCodeAssistant, clipboardManager) {
+                val clipboardWriter: (String) -> Unit = { value ->
+                    uiScope.launch {
+                        runCatching {
+                            clipboardManager.setText(AnnotatedString(value))
+                        }
+                    }
+                }
+                oauthDeviceCodeAssistant.bindClipboardWriter(clipboardWriter)
+                onDispose {
+                    oauthDeviceCodeAssistant.unbindClipboardWriter(clipboardWriter)
+                    oauthDeviceCodeAssistant.clearUserCodeNotification()
+                }
+            }
+            LaunchedEffect(activationRequest) {
+                if (activationRequest > 0L) {
+                    nucleusWindow.show()
+                    nucleusWindow.setMinimized(false)
+                    nucleusWindow.toFront()
+                    nucleusWindow.requestFocus()
+                }
+            }
+
+            PlaylistMigrationBackgroundHost(
+                uiScope = uiScope,
+                showWindow = showWindow,
+            )
+
+            if (playbackSmokeFile != null) {
+                LaunchedEffect(playbackSmokeFile) {
+                    check(playbackSmokeFile.isFile) {
+                        "Native playback smoke file does not exist: ${playbackSmokeFile.absolutePath}"
+                    }
+                    val engine = DesktopMpvPlaybackEngine { listener -> FfmMpvBackend(listener, mpvNativeApi) }
+                    try {
+                        val track = MusicTrack(
+                            id = "nucleus-native-playback-smoke",
+                            title = "Native playback smoke",
+                            artists = "FuoEvolve CI",
+                            album = "",
+                            source = "local",
+                            sourceType = TrackSourceType.LocalMediaStore,
+                            durationMs = 5_000L,
+                            localUri = playbackSmokeFile.absolutePath,
+                        )
+                        engine.play(
+                            track,
+                            PlaybackPayload(
+                                url = playbackSmokeFile.absolutePath,
+                                title = track.title,
+                                artists = track.artists,
+                                album = track.album,
+                                source = track.source,
+                                durationMs = track.durationMs,
+                            ),
+                        )
+                        val playing = withTimeout(20_000L) {
+                            engine.state.first { state ->
+                                state.status == PlayerStatus.Playing && state.positionMs >= 300L
+                            }
+                        }
+                        check(playing.positionMs >= 300L) {
+                            "Native libmpv playback did not advance: ${playing.positionMs} ms"
+                        }
+                    } finally {
+                        engine.close()
+                    }
+                    requestExit()
+                }
+            } else if (smokeMode) {
+                LaunchedEffect(Unit) {
+                    // Reaching this effect means Tao and the existing FuoEvolve composition both
+                    // started successfully. Give one frame a short grace period before exiting.
+                    delay(1_500)
+                    requestExit()
+                }
+            }
+
+            val openGlRenderContextParameters = remember {
+                nucleusOpenGlRenderContextParameters()
+            }
+            val fullscreenHandler = remember(nucleusWindow) {
+                { fullscreen: Boolean -> nucleusWindow.setFullscreen(fullscreen) }
+            }
+            ProvideDesktopVideoFullscreenHandler(fullscreenHandler) {
+                DesktopAppHost(
+                    nativeMpvApi = mpvNativeApi,
+                    audioCaptureApi = audioCaptureApi,
+                    externalInputs = appExternalInputs,
+                    openGlRenderContextParameters = openGlRenderContextParameters,
+                    windowContentWrapper = { content ->
+                        FuoDesktopWindowContent(content)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun NucleusDecoratedWindowScope.nucleusOpenGlRenderContextParameters():
+    DesktopOpenGlRenderContextParameters? {
+    if (!System.getProperty("os.name").contains("linux", ignoreCase = true)) return null
+
+    val taoHandle = nucleusWindow.unsafe.taoHandle ?: return null
+    val handles = runCatching { NucleusVideoNativeInterop.nativeLinuxHandles(taoHandle) }.getOrNull()
+    if (handles == null || handles.size != 3 || handles[0] !in 1L..2L || handles[1] == 0L) {
+        AppLogger.w("DesktopVideo", "Nucleus Tao Linux native display handles are unavailable")
+        return null
+    }
+
+    val taoGetProcAddress = runCatching {
+        NucleusVideoNativeInterop.taoGetProcAddressFunctionPointer()
+    }.getOrDefault(0L)
+    if (taoGetProcAddress == 0L) {
+        AppLogger.w("DesktopVideo", "Nucleus Tao GL proc address is unavailable")
+        return null
+    }
+
+    return DesktopOpenGlRenderContextParameters(
+        nativeDisplayKind = handles[0].toInt(),
+        nativeDisplay = handles[1],
+        taoGetProcAddress = taoGetProcAddress,
+    )
+}
+
+@Composable
+private fun NucleusDecoratedWindowScope.FuoDesktopWindowContent(
+    content: @Composable () -> Unit,
+) {
+    val isFullscreen by nucleusWindow.fullscreenFlow.collectAsState()
+    val colorScheme = MaterialTheme.colorScheme
+    val titleBarColors = TitleBarColors(
+        background = colorScheme.surfaceContainer,
+        inactiveBackground = colorScheme.surfaceContainer,
+        content = colorScheme.onSurface,
+        border = colorScheme.outlineVariant,
+        fullscreenControlButtonsBackground = colorScheme.surfaceContainerHigh,
+        iconButtonHoveredBackground = colorScheme.surfaceContainerHigh,
+        iconButtonPressedBackground = colorScheme.surfaceContainerHighest,
+        controlButtonIconColor = colorScheme.onSurfaceVariant,
+        controlButtonIconHoverColor = colorScheme.onSurface,
+    )
+
+    NucleusDecoratedWindowTheme(
+        isDark = colorScheme.surface.luminance() < 0.5f,
+        titleBarStyle = TitleBarStyle(
+            colors = titleBarColors,
+            metrics = TitleBarMetrics(height = 48.dp),
+        ),
+    ) {
+        WindowBackground(if (isFullscreen) Color.Black else colorScheme.surface)
+        // Keep a single WindowScaffold/content slot: switching between separate branches would
+        // dispose NativeView and its controller during fullscreen and restart video playback.
+        WindowScaffold(
+            titleBar = if (isFullscreen) null else ({
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(colorScheme.surfaceContainer)
+                        .windowDragArea(),
+                ) {
+                    WindowControls(
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                        renderer = WindowControlsRenderer.Platform,
+                    )
+                }
+            }),
+            titleBarPlacement = TitleBarPlacement.Docked,
+        ) { contentPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding),
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+internal fun nucleusTrayCanRestoreWindow(
+    osName: String = System.getProperty("os.name").orEmpty(),
+    linuxStatusNotifierProbe: () -> Boolean = ::linuxStatusNotifierWatcherAvailable,
+): Boolean {
+    val normalized = osName.lowercase(Locale.ROOT)
+    return when {
+        normalized.contains("windows") -> true
+        normalized.contains("mac") || normalized.contains("darwin") -> true
+        normalized.contains("linux") -> linuxStatusNotifierProbe()
+        else -> false
+    }
+}
+
+private fun linuxStatusNotifierWatcherAvailable(): Boolean {
+    if (System.getenv("DBUS_SESSION_BUS_ADDRESS").isNullOrBlank()) return false
+    return runCatching {
+        val process = ProcessBuilder(
+            "busctl",
+            "--user",
+            "--no-pager",
+            "status",
+            "org.kde.StatusNotifierWatcher",
+        ).redirectErrorStream(true).start()
+        val finished = process.waitFor(LINUX_TRAY_PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            return@runCatching false
+        }
+        process.exitValue() == 0
+    }.getOrDefault(false)
+}
+
+private fun configurePackagedNativeRuntime() {
+    if (!System.getProperty("os.name").orEmpty().contains("linux", ignoreCase = true)) return
+    if (!System.getProperty("fuoevolve.libsecret.dir").isNullOrBlank()) return
+    if (!System.getenv("FUOEVOLVE_LIBSECRET_DIR").isNullOrBlank()) return
+
+    val resourcesDir = System.getProperty("compose.application.resources.dir")
+        ?.takeIf(String::isNotBlank)
+        ?.let(::File)
+        ?: return
+    val bundledLibSecret = resourcesDir.resolve("native/libsecret")
+    if (bundledLibSecret.isDirectory) {
+        System.setProperty("fuoevolve.libsecret.dir", bundledLibSecret.absolutePath)
+    }
+}
