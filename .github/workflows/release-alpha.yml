@@ -5,6 +5,10 @@ on:
   push:
     tags:
       - 'v0.1.0-alpha.4'
+    branches:
+      - main
+    paths:
+      - '.release-alpha4'
 
 permissions:
   contents: write
