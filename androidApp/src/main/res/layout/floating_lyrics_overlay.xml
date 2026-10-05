@@ -3,27 +3,32 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="10dp"
-    android:background="#D9202020">
+    android:padding="6dp"
+    android:background="@android:color/transparent">
 
     <TextView
         android:id="@+id/floatingLyricsText"
-        android:layout_width="280dp"
+        android:layout_width="300dp"
         android:layout_height="wrap_content"
         android:gravity="center"
         android:maxLines="2"
+        android:paddingVertical="6dp"
         android:textColor="#FFFFFFFF"
         android:textSize="16sp" />
 
     <LinearLayout
+        android:id="@+id/floatingLyricsControls"
         android:layout_width="match_parent"
         android:layout_height="40dp"
         android:gravity="center"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:background="@android:color/transparent">
 
         <ImageButton android:id="@+id/floatingLyricsPrevious" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="上一首" android:src="@android:drawable/ic_media_previous" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
         <ImageButton android:id="@+id/floatingLyricsToggle" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="播放或暂停" android:src="@android:drawable/ic_media_play" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
         <ImageButton android:id="@+id/floatingLyricsNext" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="下一首" android:src="@android:drawable/ic_media_next" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
+        <ImageButton android:id="@+id/floatingLyricsColor" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="切换歌词颜色" android:src="@android:drawable/ic_menu_manage" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
+        <ImageButton android:id="@+id/floatingLyricsLock" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="锁定悬浮歌词" android:src="@android:drawable/ic_lock_lock" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
         <ImageButton android:id="@+id/floatingLyricsClose" android:layout_width="40dp" android:layout_height="40dp" android:contentDescription="关闭悬浮歌词" android:src="@android:drawable/ic_menu_close_clear_cancel" android:background="@android:color/transparent" android:tint="#FFFFFFFF" />
     </LinearLayout>
 </LinearLayout>
