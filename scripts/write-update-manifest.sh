@@ -11,7 +11,7 @@ readonly CHANNEL="$1"
 readonly APK_PATH="$2"
 readonly OUTPUT_PATH="$3"
 readonly APK_URL="$4"
-readonly PACKAGE_NAME="org.feeluown.mobile"
+readonly PACKAGE_NAME="org.feeluown.mobile" # Keep stable until the controlled com.ming.music migration.
 
 case "$CHANNEL" in
     stable|canary) ;;
