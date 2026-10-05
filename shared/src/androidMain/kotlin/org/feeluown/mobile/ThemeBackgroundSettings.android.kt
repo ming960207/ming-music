@@ -1,6 +1,5 @@
 package org.feeluown.mobile
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,7 +21,9 @@ internal actual fun rememberThemeBackgroundSettingsAction(): ThemeBackgroundSett
         if (uri != null) {
             runCatching {
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    File(context.filesDir, "ming_theme_background").outputStream().use(input::copyTo)
+                    File(context.filesDir, "ming_theme_background").outputStream().use { output ->
+                        input.copyTo(output)
+                    }
                 }
                 prefs.edit().putBoolean("custom_enabled", true).apply()
                 enabled = true
