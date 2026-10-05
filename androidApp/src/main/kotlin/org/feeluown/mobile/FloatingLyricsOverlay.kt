@@ -38,10 +38,17 @@ internal class FloatingLyricsOverlay(
     private var lastPayload: StatusBarLyricsPayload = StatusBarLyricsPayload.Empty
     private var lastPositionMs: Long = 0L
     private var overlayEnabled = false
+    private var lastSnapshot: Snapshot? = null
+    private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == FloatingLyricsPermissionActivity.KEY_ENABLED) {
+            lastSnapshot?.let(::render)
+        }
+    }
     private val prefs = appContext.getSharedPreferences(FloatingLyricsPermissionActivity.PREFS, Context.MODE_PRIVATE)
 
     fun start() {
         if (collectJob != null) return
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
         collectJob = scope.launch {
             playbackSession.state.collect { state ->
                 render(
@@ -58,6 +65,7 @@ internal class FloatingLyricsOverlay(
     }
 
     fun close() {
+        prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         collectJob?.cancel()
         collectJob = null
         stopTicker()
@@ -65,6 +73,7 @@ internal class FloatingLyricsOverlay(
     }
 
     private fun render(snapshot: Snapshot) {
+        lastSnapshot = snapshot
         overlayEnabled = prefs.getBoolean(FloatingLyricsPermissionActivity.KEY_ENABLED, false)
         if (!overlayEnabled || !snapshot.enabled || !Settings.canDrawOverlays(appContext)) {
             removeOverlay()
