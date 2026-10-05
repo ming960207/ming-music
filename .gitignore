@@ -1,25 +1,18 @@
-# Gradle
+oauth.json
+client_secret*.json
 .gradle/
+.kotlin/
 build/
 **/build/
-
-# Android / IntelliJ
+**/target/
 local.properties
-.idea/
 *.iml
-captures/
-.externalNativeBuild/
-.cxx/
-
-# Signing / secrets
+.idea/
+.DS_Store
+DerivedData/
+iosApp/**/*.xcuserdata/
+iosApp/**/*.xcuserstate
+signing/
 *.jks
 *.keystore
-*.p12
-*.pem
-.env
-.env.*
-secrets.properties
-
-# OS
-.DS_Store
-Thumbs.db
+__pycache__

@@ -1,0 +1,367 @@
+package org.feeluown.mobile
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ProviderVideoList(videos: List<ProviderVideo>, onClick: (ProviderVideo) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(FuoSpacing.xs)) {
+        videos.forEach { video -> ProviderVideoRow(video, onClick) }
+    }
+}
+
+internal fun LazyListScope.addProviderVideoItems(
+    videos: List<ProviderVideo>,
+    keyPrefix: String,
+    onClick: (ProviderVideo) -> Unit,
+) {
+    videos.forEach { video ->
+        item("$keyPrefix:${video.providerId}:${video.id}") {
+            ProviderVideoRow(video, onClick)
+        }
+    }
+}
+
+@Composable
+private fun ProviderVideoRow(video: ProviderVideo, onClick: (ProviderVideo) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .fuoInteractive()
+            .clickable(role = Role.Button) { onClick(video) }
+            .padding(vertical = FuoSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(FuoSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PlatformCoverArt(
+            title = video.title,
+            imageUrl = video.coverUrl,
+            modifier = Modifier.size(48.dp).clip(FuoVisualTokens.artwork),
+            placeholder = CoverPlaceholder.Song,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(video.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                video.artists.ifBlank { video.providerName },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(Icons.Filled.PlayArrow, contentDescription = "播放视频")
+    }
+}
+
+/** Give the most frequently visited personalized cards room to breathe on compact phones. */
+internal fun refinedForYouColumns(gridColumns: Int, wide: Boolean): Int =
+    if (wide) gridColumns.coerceIn(2, 5) else 2
+
+@Composable
+fun ForYouRecommendGrid(
+    sections: List<ProviderContentSection>,
+    enabled: Boolean,
+    onFeatureClick: (ProviderFeature) -> Unit,
+    onPrivateFmClick: (ProviderContentSection) -> Unit,
+) {
+    val layoutInfo = LocalAppLayoutInfo.current
+    val columns = refinedForYouColumns(layoutInfo.gridColumns, layoutInfo.useWideLayout)
+    val spacing = if (layoutInfo.useWideLayout) FuoSpacing.md else FuoSpacing.lg
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(spacing),
+    ) {
+        sections.chunked(columns).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+            ) {
+                row.forEach { section ->
+                    when {
+                        section.feature.isPrivateFm() -> PrivateFmButton(
+                            section = section,
+                            enabled = enabled,
+                            onClick = { onPrivateFmClick(section) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        section.feature.isDailySongs() -> DailyRecommendationButton(
+                            feature = section.feature,
+                            enabled = enabled,
+                            onClick = { onFeatureClick(section.feature) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        section.feature.isBilibiliRecommendedVideos() ||
+                            section.feature.isBilibiliDynamicVideos() ||
+                            section.feature.isRecommendedNewSongs() -> RecommendationEntryButton(
+                                feature = section.feature,
+                                enabled = enabled,
+                                onClick = { onFeatureClick(section.feature) },
+                                modifier = Modifier.weight(1f),
+                            )
+                    }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProviderFeatureCoverGrid(
+    features: List<ProviderFeature>,
+    onClick: (ProviderFeature) -> Unit,
+) {
+    val layoutInfo = LocalAppLayoutInfo.current
+    val columns = layoutInfo.gridColumns
+    val spacing = if (layoutInfo.useWideLayout) FuoSpacing.md else FuoSpacing.lg
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(spacing)) {
+        features.chunked(columns).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                row.forEach { feature ->
+                    ProviderFeatureCoverCard(
+                        feature = feature,
+                        onClick = { onClick(feature) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+internal fun LazyListScope.addProviderFeatureCoverRows(
+    features: List<ProviderFeature>,
+    columns: Int,
+    spacing: Dp,
+    keyPrefix: String,
+    onClick: (ProviderFeature) -> Unit,
+) {
+    val normalizedColumns = columns.coerceAtLeast(1)
+    features.chunked(normalizedColumns).forEachIndexed { rowIndex, row ->
+        item("$keyPrefix:row:$rowIndex") {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                row.forEach { feature ->
+                    ProviderFeatureCoverCard(
+                        feature = feature,
+                        onClick = { onClick(feature) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(normalizedColumns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProviderFeatureCoverCard(
+    feature: ProviderFeature,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isWideLayout = LocalAppLayoutInfo.current.useWideLayout
+    Column(
+        modifier = modifier
+            .fuoInteractive()
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = FuoSpacing.xs),
+    ) {
+        CoverBox(
+            track = feature.toDisplayTrack(),
+            cornerRadius = 12.dp,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            placeholder = if (feature.isDailySongs()) {
+                CoverPlaceholder.DailyRecommendation
+            } else {
+                CoverPlaceholder.Song
+            },
+        )
+        Spacer(Modifier.height(FuoSpacing.sm))
+        Text(
+            text = feature.title.ifBlank { "推荐" },
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = if (isWideLayout) 1 else 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = feature.providerName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun PrivateFmGrid(
+    sections: List<ProviderContentSection>,
+    enabled: Boolean,
+    onClick: (ProviderContentSection) -> Unit,
+) {
+    val layoutInfo = LocalAppLayoutInfo.current
+    val columns = layoutInfo.gridColumns
+    val spacing = if (layoutInfo.useWideLayout) FuoSpacing.md else FuoSpacing.lg
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(spacing)) {
+        sections.chunked(columns).forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                row.forEach { section ->
+                    PrivateFmButton(
+                        section = section,
+                        enabled = enabled,
+                        onClick = { onClick(section) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+fun PrivateFmButton(
+    section: ProviderContentSection,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    RecommendationButton(
+        modifier = modifier.fuoInteractive().clickable(
+            enabled = enabled,
+            role = Role.Button,
+            onClick = onClick,
+        ).padding(vertical = FuoSpacing.xs),
+        title = "私人 FM",
+        providerName = section.feature.providerName,
+        containerColor = FuoSurfaceColors.interactive(MaterialTheme.colorScheme),
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Radio,
+            contentDescription = "播放${section.feature.providerName}私人 FM",
+            modifier = Modifier.size(44.dp),
+        )
+    }
+}
+
+@Composable
+fun DailyRecommendationButton(
+    feature: ProviderFeature,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    RecommendationButton(
+        modifier = modifier.fuoInteractive().clickable(
+            enabled = enabled,
+            role = Role.Button,
+            onClick = onClick,
+        ).padding(vertical = FuoSpacing.xs),
+        title = feature.title.ifBlank { "每日推荐" },
+        providerName = feature.providerName,
+        containerColor = FuoSurfaceColors.interactive(MaterialTheme.colorScheme),
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.CalendarMonth,
+            contentDescription = "${feature.providerName}每日推荐",
+            modifier = Modifier.size(44.dp),
+        )
+    }
+}
+
+@Composable
+fun RecommendationEntryButton(
+    feature: ProviderFeature,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    RecommendationButton(
+        modifier = modifier.fuoInteractive().clickable(
+            enabled = enabled,
+            role = Role.Button,
+            onClick = onClick,
+        ).padding(vertical = FuoSpacing.xs),
+        title = feature.title.ifBlank { "推荐视频" },
+        providerName = feature.providerName,
+        containerColor = FuoSurfaceColors.interactive(MaterialTheme.colorScheme),
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        val icon = providerFeatureIcon(feature.id) ?: Icons.Filled.PlayArrow
+        Icon(
+            imageVector = icon,
+            contentDescription = "打开${feature.providerName}${feature.title}",
+            modifier = Modifier.size(44.dp),
+        )
+    }
+}
+
+@Composable
+fun RecommendationButton(
+    title: String,
+    providerName: String,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val isWideLayout = LocalAppLayoutInfo.current.useWideLayout
+    Column(modifier = modifier) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            color = containerColor,
+            contentColor = contentColor,
+            shape = FuoVisualTokens.content,
+            tonalElevation = FuoElevation.content,
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                content()
+            }
+        }
+        Spacer(Modifier.height(FuoSpacing.sm))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = if (isWideLayout) 1 else 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = providerName,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}

@@ -1,0 +1,178 @@
+package org.feeluown.mobile
+
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class IosPlatformRepositoriesTest {
+    @Test
+    fun localPlaylistImportCancellationDoesNotReportReadFailure() {
+        var importCount = 0
+        var readFailureCount = 0
+
+        handleIosLocalPlaylistImportResult(
+            fileName = null,
+            content = null,
+            onImport = { _, _ -> importCount += 1 },
+            onReadFailure = { readFailureCount += 1 },
+        )
+
+        assertEquals(0, importCount)
+        assertEquals(0, readFailureCount)
+    }
+
+    @Test
+    fun localPlaylistImportReadFailureStillReportsFailure() {
+        var importCount = 0
+        var readFailureCount = 0
+
+        handleIosLocalPlaylistImportResult(
+            fileName = "playlist.fuo",
+            content = null,
+            onImport = { _, _ -> importCount += 1 },
+            onReadFailure = { readFailureCount += 1 },
+        )
+
+        assertEquals(0, importCount)
+        assertEquals(1, readFailureCount)
+    }
+
+    @Test
+    fun relaxedScanSettingsRestoreTracksFromUnfilteredCache() = runTest {
+        val mediaLibrary = FakeMediaLibraryOutput()
+        val repository = IosLocalMusicRepository(mediaLibrary)
+        repository.refreshDatabase()
+
+        repository.updateScanSettings(LocalMusicScanSettings(minDurationSeconds = 60))
+        assertEquals(listOf("Long track"), repository.tracks().map { it.title })
+
+        repository.updateScanSettings(
+            LocalMusicScanSettings(excludedDirectoryIds = setOf("ios-media-library")),
+        )
+        assertEquals(emptyList(), repository.tracks())
+
+        repository.updateScanSettings(LocalMusicScanSettings())
+        assertEquals(listOf("Short track", "Long track"), repository.tracks().map { it.title })
+        val directory = repository.directories().single()
+        assertEquals("歌曲", directory.name)
+        assertEquals(2, directory.trackCount)
+        assertEquals("file:///tmp/short.jpg", directory.coverUrl)
+        assertEquals("ios-media-library", repository.tracks().first().localDirectoryId)
+        assertEquals(1, mediaLibrary.trackRequests)
+    }
+
+    @Test
+    fun audioRecognitionTranslatesProgressAndResults() = runTest {
+        val output = FakeAudioRecognitionOutput(
+            resultJson = """
+                [{
+                  "netease_song_id":"42",
+                  "title":"Song",
+                  "artists":["Artist A","Artist B"],
+                  "album":"Album",
+                  "cover_url":"https://example.com/cover.jpg",
+                  "match_start_time_ms":1234
+                }]
+            """.trimIndent(),
+        )
+        val repository = IosAudioRecognitionRepository(output)
+        val events = mutableListOf<AudioRecognitionEvent>()
+
+        val songs = repository.recognize(events::add)
+
+        assertEquals("42", songs.single().neteaseSongId)
+        assertEquals(listOf("Artist A", "Artist B"), songs.single().artists)
+        assertEquals(1234L, songs.single().matchStartTimeMs)
+        assertEquals(AudioRecognitionEvent.Capturing(1, 2_000), events[0])
+        assertEquals(AudioRecognitionEvent.Matching(1), events[1])
+        assertEquals(AudioRecognitionEvent.Success(songs), events[2])
+    }
+
+    @Test
+    fun audioRecognitionPropagatesNativeErrorAndCancelsOutput() = runTest {
+        val errorOutput = FakeAudioRecognitionOutput(error = "request timeout")
+        val repository = IosAudioRecognitionRepository(errorOutput)
+
+        val failure = runCatching { repository.recognize {} }.exceptionOrNull()
+
+        assertEquals("request timeout", failure?.message)
+
+        val waitingOutput = FakeAudioRecognitionOutput(waitForCancellation = true)
+        val waitingRepository = IosAudioRecognitionRepository(waitingOutput)
+        val job = launch { waitingRepository.recognize {} }
+        runCurrent()
+        job.cancelAndJoin()
+
+        assertTrue(waitingOutput.cancelled)
+    }
+
+    private class FakeMediaLibraryOutput : IosMediaLibraryOutput {
+        var trackRequests = 0
+
+        override fun hasPermission(): Boolean = true
+
+        override fun requestPermission(completionHandler: (Boolean) -> Unit) = completionHandler(true)
+
+        override fun tracksJson(): String {
+            trackRequests += 1
+            return """
+                {
+                  "tracks": [
+                    {
+                      "id": "short",
+                      "title": "Short track",
+                      "artists": "Artist",
+                      "album": "Album",
+                      "duration_ms": 30000,
+                      "local_uri": "ipod-library://short",
+                      "artwork_url": "file:///tmp/short.jpg"
+                    },
+                    {
+                      "id": "long",
+                      "title": "Long track",
+                      "artists": "Artist",
+                      "album": "Album",
+                      "duration_ms": 120000,
+                      "local_uri": "ipod-library://long",
+                      "artwork_url": "file:///tmp/long.jpg"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        }
+    }
+
+    private class FakeAudioRecognitionOutput(
+        private val resultJson: String? = null,
+        private val error: String? = null,
+        private val waitForCancellation: Boolean = false,
+    ) : IosAudioRecognitionOutput {
+        var cancelled = false
+
+        override fun hasPermission(): Boolean = true
+
+        override fun requestPermission(completionHandler: (Boolean) -> Unit) {
+            completionHandler(true)
+        }
+
+        override fun recognize(
+            eventHandler: (String, String, String) -> Unit,
+            completionHandler: (String?, String?) -> Unit,
+        ) {
+            if (waitForCancellation) return
+            eventHandler("capturing", "1", "2000")
+            eventHandler("matching", "1", "6000")
+            completionHandler(resultJson, error)
+        }
+
+        override fun cancel() {
+            cancelled = true
+        }
+    }
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path
+        name="debug_logs"
+        path="debug-logs/" />
+    <cache-path
+        name="diagnostics"
+        path="diagnostics/" />
+    <cache-path
+        name="local_playlists"
+        path="local-playlists/" />
+    <cache-path
+        name="app_updates"
+        path="app-updates/" />
+</paths>

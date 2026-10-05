@@ -1,0 +1,233 @@
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.BYDAUTO_INSTRUMENT_COMMON" />
+    <uses-permission android:name="android.permission.BYDAUTO_INSTRUMENT_GET" />
+    <uses-permission android:name="android.permission.BYDAUTO_INSTRUMENT_SET" />
+
+    <queries>
+        <package android:name="io.github.proify.lyricon" />
+        <package android:name="io.github.andrealtb.lockscreenlyrics" />
+    </queries>
+
+    <application
+        android:name=".FuoEvolveApplication"
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="FuoEvolve"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+        <meta-data android:name="lyricon_module" android:value="true" />
+        <meta-data android:name="lyricon_module_author" android:value="FeelUOwn" />
+        <meta-data android:name="lyricon_module_description" android:value="FuoEvolve 状态栏歌词" />
+        <meta-data android:name="lyricon_module_tags" android:resource="@array/lyricon_module_tags" />
+        <meta-data
+            android:name="io.github.andrealtb.lockscreenlyrics.OPLUS_MEDIA_HISTORY"
+            android:value="true" />
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="uiMode|orientation|screenSize"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter android:label="导入歌单">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="fuo" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="application/x-fuo" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="feeluown.github.io"
+                    android:pathPrefix="/FuoEvolve/r"
+                    android:scheme="https" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开网易云音乐链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="music.163.com" />
+                <data android:host="y.music.163.com" />
+                <data android:path="/song" />
+                <data android:path="/playlist" />
+                <data android:path="/artist" />
+                <data android:path="/album" />
+                <data android:path="/m/song" />
+                <data android:path="/m/playlist" />
+                <data android:path="/m/artist" />
+                <data android:path="/m/album" />
+                <data android:path="/f/song" />
+                <data android:path="/f/playlist" />
+                <data android:path="/f/artist" />
+                <data android:path="/f/album" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开哔哩哔哩链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="bilibili.com" />
+                <data android:host="www.bilibili.com" />
+                <data android:host="m.bilibili.com" />
+                <data android:pathPrefix="/video/BV" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开 QQ 音乐链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="y.qq.com" />
+                <data android:pathPrefix="/n/ryqq/songDetail/" />
+                <data android:pathPrefix="/n/ryqq/playlist/" />
+                <data android:pathPrefix="/n/ryqq/singer/" />
+                <data android:pathPrefix="/n/ryqq/albumDetail/" />
+                <data android:pathPrefix="/n/ryqq/album/" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开 QQ 音乐分享链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="i.y.qq.com" />
+                <data android:path="/n2/m/share/details/taoge.html" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开 YouTube Music 链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="music.youtube.com" />
+                <data android:path="/watch" />
+                <data android:path="/playlist" />
+                <data android:pathPrefix="/channel/" />
+                <data android:pathPrefix="/browse/" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开 YouTube 链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="youtube.com" />
+                <data android:host="www.youtube.com" />
+                <data android:path="/watch" />
+                <data android:path="/playlist" />
+            </intent-filter>
+            <intent-filter android:autoVerify="false" android:label="打开 YouTube 短链接">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="youtu.be" />
+                <data android:pathPrefix="/" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".PlaylistMigrationDeepLinkActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name=".AppUpdateSavePermissionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name=".ShareReceiverActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter android:label="用 FuoEvolve 打开">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+            <intent-filter android:label="用 FuoEvolve 搜索">
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".ProviderWebLoginActivity"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <service
+            android:name=".FuoPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".FuoDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <receiver
+            android:name=".OAuthUserCodeCopyReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.feeluown.mobile.action.OAUTH_COPY_USER_CODE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

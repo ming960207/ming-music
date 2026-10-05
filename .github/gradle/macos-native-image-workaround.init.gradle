@@ -1,0 +1,150 @@
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import org.gradle.api.tasks.Exec
+
+gradle.beforeProject { project ->
+    if (project.path != ':desktopApp') {
+        return
+    }
+
+    project.pluginManager.withPlugin('dev.nucleusframework') {
+        def requestedGraalvmVersion = System.getenv('FUOEVOLVE_GRAALVM_VERSION')?.trim()
+        if (requestedGraalvmVersion) {
+            def nucleus = project.extensions.getByName('nucleus')
+            nucleus.application.graalvm.toolchain.version.set(requestedGraalvmVersion)
+            project.logger.lifecycle("FuoEvolve macOS GraalVM toolchain override: ${requestedGraalvmVersion}")
+        }
+
+        def preflight = project.tasks.register('verifyGraalvmMachOPreflight', Exec) { task ->
+            task.group = 'verification'
+            task.description = 'Require the raw macOS Native Image to support Apple Mach-O mutation tools.'
+            task.dependsOn('nativeImageCompile')
+
+            def binary = project.layout.buildDirectory
+                .file('compose/tmp/main/graalvm/nativeCompile/fuoevolve')
+                .get()
+                .asFile
+            task.inputs.file(binary)
+            task.commandLine(
+                'bash',
+                project.rootProject.file('desktopApp/packaging/macos/macho-preflight.sh').absolutePath,
+                binary.absolutePath,
+            )
+        }
+
+        project.tasks.matching { it.name == 'copyGraalvmBinaryToApp' }.configureEach { task ->
+            task.dependsOn(preflight)
+        }
+
+        def packagedMainBinary = {
+            def rpathTask = project.tasks.named('fixGraalvmRpath', Exec).get()
+            def command = rpathTask.commandLine as List
+            if (!command) {
+                throw new GradleException("${rpathTask.path} has no configured command line")
+            }
+            project.file(command[-1].toString())
+        }
+        def mainBackup = project.layout.buildDirectory
+            .file('tmp/fuoevolve-macos-native-image/fuoevolve.before-build-version-patch')
+
+        // Keep the main executable backup/restore as separate tasks rather than doFirst/doLast on
+        // Nucleus's patch task. Nucleus appends its own patch action after this init script is
+        // applied, so a doLast registered here can otherwise run before the actual vtool patch.
+        // Explicit task dependencies make the required order deterministic:
+        // copy main -> backup main -> patch all Mach-O -> restore raw main -> rpath/strip.
+        def backupMain = project.tasks.register('backupGraalvmMainBeforeBuildVersionPatch') { task ->
+            task.group = 'build'
+            task.description = 'Back up the raw GraalVM main executable before Nucleus patches LC_BUILD_VERSION.'
+            task.dependsOn('copyGraalvmBinaryToApp')
+            task.doLast {
+                def binary = packagedMainBinary()
+                if (!binary.isFile()) {
+                    throw new GradleException("GraalVM main executable not found before build-version patch: ${binary}")
+                }
+                def backup = mainBackup.get().asFile
+                backup.parentFile.mkdirs()
+                Files.copy(
+                    binary.toPath(),
+                    backup.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.COPY_ATTRIBUTES,
+                )
+                project.logger.lifecycle(
+                    'FuoEvolve macOS Native Image: backed up raw main executable before Nucleus patches companion Mach-O files',
+                )
+            }
+        }
+
+        project.tasks.matching { it.name == 'patchGraalvmBuildVersion' }.configureEach { task ->
+            task.dependsOn(backupMain)
+        }
+
+        def restoreMain = project.tasks.register('restoreGraalvmMainAfterBuildVersionPatch') { task ->
+            task.group = 'build'
+            task.description = 'Restore the raw GraalVM main executable after Nucleus patches companion Mach-O files.'
+            task.dependsOn('patchGraalvmBuildVersion')
+            task.doLast {
+                def binary = packagedMainBinary()
+                def backup = mainBackup.get().asFile
+                if (!backup.isFile()) {
+                    throw new GradleException("GraalVM main executable backup missing after build-version patch: ${backup}")
+                }
+                Files.move(
+                    backup.toPath(),
+                    binary.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+                project.logger.lifecycle(
+                    'FuoEvolve macOS Native Image: restored unpatched main executable after Nucleus companion Mach-O patches completed',
+                )
+            }
+        }
+
+        // Keep the temporary-copy mutation model so a failed Apple tool never corrupts the package,
+        // but failures are fatal. The restored raw main executable is expected to support rpath and
+        // strip exactly as it did in the preflight.
+        def safeMutationScript = project.rootProject
+            .file('desktopApp/packaging/macos/safe-macho-mutate.sh')
+            .absolutePath
+        project.tasks.withType(Exec).matching {
+            it.name == 'fixGraalvmRpath' || it.name == 'stripGraalvmBinary'
+        }.configureEach { task ->
+            if (task.name == 'fixGraalvmRpath') {
+                task.dependsOn(restoreMain)
+            }
+            task.doFirst {
+                def originalCommand = task.commandLine as List
+                if (!originalCommand) {
+                    throw new GradleException("${task.path} has no configured command line")
+                }
+                def binary = originalCommand[-1].toString()
+                def operation = task.name == 'fixGraalvmRpath' ? 'rpath' : 'strip'
+                task.commandLine('bash', safeMutationScript, operation, binary)
+            }
+        }
+
+        // Do not allow a successful DMG to hide a missing main-executable rpath. Validate the exact
+        // binary Nucleus stripped before codesigning starts.
+        def verifyExecutableScript = project.rootProject
+            .file('desktopApp/packaging/macos/verify-macho-executable.sh')
+            .absolutePath
+        def verifyExecutable = project.tasks.register('verifyGraalvmExecutableMachO', Exec) { task ->
+            task.group = 'verification'
+            task.description = 'Verify the packaged GraalVM executable Mach-O layout and rpath.'
+            task.dependsOn('stripGraalvmBinary')
+            task.doFirst {
+                def stripTask = project.tasks.named('stripGraalvmBinary', Exec).get()
+                def stripCommand = stripTask.commandLine as List
+                if (!stripCommand) {
+                    throw new GradleException("${stripTask.path} has no configured command line")
+                }
+                def binary = stripCommand[-1].toString()
+                task.commandLine('bash', verifyExecutableScript, binary)
+            }
+        }
+
+        project.tasks.matching { it.name == 'codesignGraalvmBundle' }.configureEach { task ->
+            task.dependsOn(verifyExecutable)
+        }
+    }
+}

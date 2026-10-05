@@ -1,0 +1,58 @@
+package org.feeluown.mobile.playback.api
+
+import kotlinx.coroutines.flow.StateFlow
+import org.feeluown.mobile.RepeatMode
+import org.feeluown.mobile.core.model.TrackRef
+
+enum class PlaybackSessionStatus {
+    Idle,
+    Loading,
+    Playing,
+    Paused,
+    Error,
+    Ended,
+}
+
+data class PlaybackSessionState(
+    val status: PlaybackSessionStatus = PlaybackSessionStatus.Idle,
+    val currentTrack: TrackRef? = null,
+    val positionMs: Long = 0L,
+    val lyricsPositionMs: Long = positionMs,
+    val lyricsAlignmentOffsetMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val bufferedMs: Long = 0L,
+    val volume: Double = 1.0,
+    val lyrics: String? = null,
+    val queueTrackIds: List<String> = emptyList(),
+    val queueIndex: Int = -1,
+    val canonicalQueueTracks: List<TrackRef> = emptyList(),
+    val canonicalQueueIndex: Int = -1,
+    val canGoNext: Boolean = false,
+    val canGoPrevious: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.QUEUE,
+    val shuffleEnabled: Boolean = false,
+    val canChangePlaybackMode: Boolean = true,
+    val errorMessage: String? = null,
+)
+
+/**
+ * Narrow app-scoped playback contract for platform integrations and cross-feature consumers.
+ *
+ * Implementations own the published session state and transport policy. Consumers depend only on
+ * this surface so the underlying engine, queue coordinator, and platform adapters can evolve
+ * independently.
+ */
+interface PlaybackSession {
+    val state: StateFlow<PlaybackSessionState>
+
+    fun toggle()
+    fun play()
+    fun pause()
+    fun stop() = pause()
+    fun previous()
+    fun next()
+    fun seekTo(positionMs: Long) = Unit
+    fun setVolume(volume: Double) = Unit
+    fun setRepeatMode(mode: RepeatMode) = Unit
+    fun setShuffleEnabled(enabled: Boolean) = Unit
+}

@@ -1,0 +1,79 @@
+plugins {
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.android.kotlin.multiplatform.library)
+}
+
+kotlin {
+    android {
+        namespace = "org.feeluown.mobile.provider.qqmusic"
+        compileSdk = libs.versions.androidCompileSdk.get().toInt()
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+        withHostTest {}
+
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
+    iosArm64()
+    iosSimulatorArm64()
+
+    sourceSets {
+        commonMain.dependencies {
+            api(project(":provider:runtime"))
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.ktor.client.core)
+        }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.ktor.client.mock)
+        }
+    }
+}
+
+val qqmusicBuildFile = layout.projectDirectory.file("build.gradle.kts")
+val legacySharedQqMusicCommonDirectory = rootProject.layout.projectDirectory.dir(
+    "shared/src/commonMain/kotlin/org/feeluown/mobile/provider/qqmusic",
+)
+val legacySharedQqMusicAndroidDirectory = rootProject.layout.projectDirectory.dir(
+    "shared/src/androidMain/kotlin/org/feeluown/mobile/provider/qqmusic",
+)
+val legacySharedQqMusicIosDirectory = rootProject.layout.projectDirectory.dir(
+    "shared/src/iosMain/kotlin/org/feeluown/mobile/provider/qqmusic",
+)
+
+val checkConcreteProviderBoundaries = tasks.register("checkConcreteProviderBoundaries") {
+    group = "verification"
+    description = "Checks the QQ Music concrete provider module boundary."
+    doLast {
+        val buildText = qqmusicBuildFile.asFile.readText()
+        val forbidden = listOf(
+            "project(\":shared\")",
+            "project(\":androidApp\")",
+            "project(\":feature:",
+            "project(\":persistence:",
+            "project(\":provider:bilibili\")",
+            "project(\":provider:netease\")",
+            "project(\":provider:ytmusic\")",
+        )
+        forbidden.forEach { dependency ->
+            check(dependency !in buildText) { "QQ Music provider must not depend upward/across on $dependency" }
+        }
+        check(!legacySharedQqMusicCommonDirectory.asFile.exists()) {
+            "QQ Music implementation must not move back into :shared"
+        }
+        check(!legacySharedQqMusicAndroidDirectory.asFile.exists()) {
+            "QQ Music Android implementation must not move back into :shared"
+        }
+        check(!legacySharedQqMusicIosDirectory.asFile.exists()) {
+            "QQ Music iOS implementation must not move back into :shared"
+        }
+    }
+}
+
+tasks.matching { it.name == "allTests" }.configureEach {
+    dependsOn(checkConcreteProviderBoundaries)
+}
