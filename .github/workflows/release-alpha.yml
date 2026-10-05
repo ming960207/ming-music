@@ -23,6 +23,9 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - name: Verify Android build
+        env:
+          MING_VERSION_NAME: 0.1.0-alpha.2
+          MING_VERSION_CODE: 100002
         run: ./gradlew :androidApp:assembleDebug --stacktrace
 
       - name: Verify updater points only to Ming Music GitHub
@@ -61,4 +64,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Ming Music 0.1.0 Alpha 2" \
-            --notes "首个 Ming Music Android 可安装测试版。包含 FuoEvolve 播放基线、Ming Music 品牌迁移初版、悬浮歌词（拖动、同步歌词、上一首/播放暂停/下一首、直接关闭）及悬浮窗权限入口。此版本为 Alpha，在线音乐可播放性受各 Provider 授权、地区和服务状态影响。"
+            --notes "Ming Music Alpha 2。更新软件图标并修复 Android versionName/versionCode 迭代；包含 FuoEvolve 播放基线、Ming Music 品牌迁移初版、悬浮歌词（拖动、同步歌词、上一首/播放暂停/下一首、直接关闭）及悬浮窗权限入口。此版本为 Alpha，在线音乐可播放性受各 Provider 授权、地区和服务状态影响。"
