@@ -32,6 +32,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class AndroidAppUpdateController(
     context: Context,
@@ -227,29 +234,58 @@ internal class AndroidAppUpdateController(
     }
 
     private fun fetchManifest(channel: AppUpdateChannel): AppUpdateManifest {
-        val endpoint = when (channel) {
-            AppUpdateChannel.Stable -> STABLE_MANIFEST_URL
-            AppUpdateChannel.Canary -> CANARY_MANIFEST_URL
-        }
-        val separator = if ('?' in endpoint) '&' else '?'
-        val connection = (URL("$endpoint${separator}_=${System.currentTimeMillis()}").openConnection() as HttpURLConnection).apply {
+        // MingTV-style policy: GitHub Release is the single source of truth.
+        // A commit on main never means an installable update exists.
+        val releases = fetchJson(GITHUB_RELEASES_API).jsonArray
+        val release = releases
+            .map(JsonObject::jsonObject)
+            .firstOrNull { item ->
+                val draft = item["draft"]?.jsonPrimitive?.booleanOrNull == true
+                val prerelease = item["prerelease"]?.jsonPrimitive?.booleanOrNull == true
+                !draft && when (channel) {
+                    AppUpdateChannel.Stable -> !prerelease
+                    AppUpdateChannel.Canary -> true
+                }
+            } ?: throw IOException("GitHub Release 中没有可用版本")
+
+        val assets = release["assets"]?.jsonArray ?: JsonArray(emptyList())
+        val manifestUrl = assets
+            .map(JsonObject::jsonObject)
+            .firstOrNull { asset ->
+                asset["name"]?.jsonPrimitive?.contentOrNull == UPDATE_MANIFEST_ASSET
+            }
+            ?.get("browser_download_url")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?: throw IOException("最新 Release 缺少更新清单")
+
+        require(manifestUrl.startsWith(GITHUB_RELEASE_DOWNLOAD_PREFIX)) { "更新清单地址无效" }
+        val manifest = json.decodeFromString<AppUpdateManifest>(fetchText(manifestUrl))
+        validateManifest(channel, manifest)
+        return manifest
+    }
+
+    private fun fetchJson(url: String) = json.parseToJsonElement(fetchText(url))
+
+    private fun fetchText(url: String): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = HTTP_TIMEOUT_MS
             readTimeout = HTTP_TIMEOUT_MS
             instanceFollowRedirects = true
-            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept", "application/vnd.github+json, application/json")
             setRequestProperty("Cache-Control", "no-cache")
-            setRequestProperty("User-Agent", "FuoEvolve/$installedVersionName")
+            setRequestProperty("User-Agent", "MingMusic/$installedVersionName")
         }
         return connection.useConnection { http ->
+            when (http.responseCode) {
+                403, 429 -> throw IOException("GitHub 访问受限，请稍后重试")
+                404 -> throw IOException("GitHub 更新入口不可用")
+            }
             if (http.responseCode !in 200..299) {
                 throw IOException("检查更新失败（HTTP ${http.responseCode}）")
             }
-            val manifest = http.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                json.decodeFromString<AppUpdateManifest>(reader.readText())
-            }
-            validateManifest(channel, manifest)
-            manifest
+            http.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         }
     }
 
@@ -317,7 +353,7 @@ internal class AndroidAppUpdateController(
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/vnd.android.package-archive, application/octet-stream")
             setRequestProperty("Cache-Control", "no-cache")
-            setRequestProperty("User-Agent", "FuoEvolve/$installedVersionName")
+            setRequestProperty("User-Agent", "MingMusic/$installedVersionName")
         }
         try {
             connection.useConnection { http ->
@@ -467,7 +503,7 @@ internal class AndroidAppUpdateController(
 
     private fun downloadsFileName(manifest: AppUpdateManifest): String {
         val safeVersionName = manifest.versionName.replace(INVALID_FILE_NAME_CHARS, "_")
-        return "FuoEvolve-$safeVersionName-${manifest.versionCode}.apk"
+        return "MingMusic-$safeVersionName-${manifest.versionCode}.apk"
     }
 
     private fun validateDownloadedApk(apkFile: File, manifest: AppUpdateManifest): Boolean {
@@ -486,11 +522,11 @@ internal class AndroidAppUpdateController(
                 it.copy(
                     phase = AppUpdatePhase.InstallPermissionRequired,
                     downloadProgress = null,
-                    message = "请允许 FuoEvolve 安装未知来源应用，然后返回继续安装",
+                    message = "请允许 Ming Music 安装未知来源应用，然后返回继续安装",
                 )
             }
             if (!openInstallPermissionSettings()) {
-                throw IOException("无法打开安装权限设置，请在系统设置中手动允许 FuoEvolve 安装未知来源应用")
+                throw IOException("无法打开安装权限设置，请在系统设置中手动允许 Ming Music 安装未知来源应用")
             }
             return
         }
@@ -550,7 +586,7 @@ internal class AndroidAppUpdateController(
                 setDataAndType(uri, APK_MIME_TYPE)
             }
         }.apply {
-            clipData = ClipData.newRawUri("FuoEvolve update", uri)
+            clipData = ClipData.newRawUri("Ming Music update", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
@@ -652,7 +688,7 @@ internal class AndroidAppUpdateController(
     )
 
     private companion object {
-        private const val PREFS_NAME = "fuo_app_update_state"
+        private const val PREFS_NAME = "ming_music_app_update_state"
         private const val AUTO_CHECK_INTERVAL_MS = 12L * 60L * 60L * 1000L
         private const val HTTP_TIMEOUT_MS = 15_000
         private const val DOWNLOAD_TIMEOUT_MS = 60_000
