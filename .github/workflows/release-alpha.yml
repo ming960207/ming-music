@@ -42,7 +42,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view v0.1.0-alpha.1 >/dev/null 2>&1; then
-            echo "v0.1.0-alpha.1 already exists"
+            gh release upload v0.1.0-alpha.1 \
+              MingMusic-0.1.0-alpha.1.apk \
+              MingMusic-0.1.0-alpha.1.apk.sha256 \
+              ming-music-update.json \
+              --clobber
             exit 0
           fi
           gh release create v0.1.0-alpha.1 \
