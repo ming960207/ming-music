@@ -1063,6 +1063,7 @@ private fun AppearanceFeatureSettings(
     val enabled = !state.isBusy
     val uriHandler = LocalUriHandler.current
     val floatingLyrics = rememberFloatingLyricsSettingsAction()
+    val themeBackground = rememberThemeBackgroundSettingsAction()
     SettingsGroup(title = "主题") {
         SettingsChoiceRow(
             title = "主题模式",
@@ -1075,6 +1076,25 @@ private fun AppearanceFeatureSettings(
             enabled = enabled,
         ) { value -> controller.update { it.copy(themeMode = value) } }
         SettingsDivider()
+        themeBackground?.let { background ->
+            SettingsRow(
+                title = "背景图片",
+                supportingText = if (background.customBackgroundEnabled) "已使用自定义背景 · 点击重新选择" else "默认使用 Ming 水墨主题 · 点击从相册导入",
+                enabled = enabled,
+                leadingContent = { Icon(Icons.Filled.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                onClick = background.importBackground,
+            )
+            if (background.customBackgroundEnabled) {
+                SettingsDivider()
+                SettingsRow(
+                    title = "恢复默认水墨背景",
+                    supportingText = "移除自定义图片并恢复 Ming Music 默认主题背景",
+                    enabled = enabled,
+                    onClick = background.restoreDefault,
+                )
+            }
+            SettingsDivider()
+        }
         SettingsRow(
             title = "主题设置",
             supportingText = "${settings.themeColorScheme.label} · 调色板与色彩规范",
