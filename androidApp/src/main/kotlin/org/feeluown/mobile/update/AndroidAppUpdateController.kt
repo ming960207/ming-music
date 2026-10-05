@@ -238,7 +238,7 @@ internal class AndroidAppUpdateController(
         // A commit on main never means an installable update exists.
         val releases = fetchJson(GITHUB_RELEASES_API).jsonArray
         val release = releases
-            .map(JsonObject::jsonObject)
+            .map { it.jsonObject }
             .firstOrNull { item ->
                 val draft = item["draft"]?.jsonPrimitive?.booleanOrNull == true
                 val prerelease = item["prerelease"]?.jsonPrimitive?.booleanOrNull == true
