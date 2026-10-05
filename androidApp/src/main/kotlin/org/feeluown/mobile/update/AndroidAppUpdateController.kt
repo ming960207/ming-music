@@ -250,7 +250,7 @@ internal class AndroidAppUpdateController(
 
         val assets = release["assets"]?.jsonArray ?: JsonArray(emptyList())
         val manifestUrl = assets
-            .map(JsonObject::jsonObject)
+            .map { it.jsonObject }
             .firstOrNull { asset ->
                 asset["name"]?.jsonPrimitive?.contentOrNull == UPDATE_MANIFEST_ASSET
             }
