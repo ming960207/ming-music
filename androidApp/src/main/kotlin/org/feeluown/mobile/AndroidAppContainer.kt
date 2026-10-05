@@ -27,6 +27,7 @@ internal class AndroidAppContainer(
     private var lyriconLyricsPublisher: LyriconLyricsPublisher? = null
     private var bydInstrumentLyricsPublisher: BydInstrumentLyricsPublisher? = null
     private var bluetoothLyricsPublisher: BluetoothLyricsPublisher? = null
+    private var floatingLyricsOverlay: FloatingLyricsOverlay? = null
 
     init {
         // MediaSessionService can be the process entry point after process recreation. When the
@@ -447,6 +448,11 @@ internal class AndroidAppContainer(
                 .distinctUntilChanged(),
             scope = appScope,
         ).also(LyriconLyricsPublisher::start)
+        floatingLyricsOverlay = FloatingLyricsOverlay(
+            context = context,
+            playbackSession = session,
+            scope = appScope,
+        ).also(FloatingLyricsOverlay::start)
         bluetoothLyricsPublisher = BluetoothLyricsPublisher(
             context = context,
             playbackSession = session,
@@ -501,6 +507,8 @@ internal class AndroidAppContainer(
 
     override fun close() {
         FuoPlaybackService.transportControls = null
+        floatingLyricsOverlay?.close()
+        floatingLyricsOverlay = null
         bluetoothLyricsPublisher?.close()
         bluetoothLyricsPublisher = null
         bydInstrumentLyricsPublisher?.close()
