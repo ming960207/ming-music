@@ -27,8 +27,9 @@ fun AppRoot(
         themePaletteStyle = appUiState.themePaletteStyle,
         themeColorSpec = appUiState.themeColorSpec,
     ) {
-        windowContentWrapper {
-            when {
+        ThemeBackgroundHost {
+            windowContentWrapper {
+                when {
                 !appUiState.isInitialized -> AppInitializationLoadingScreen()
                 !appUiState.onboardingCompleted -> {
                     val onboarding = requireNotNull(uiGraph.onboarding) {
@@ -45,12 +46,13 @@ fun AppRoot(
                         onStartYtmusicOAuth = platform.onStartYtmusicOAuth,
                     )
                 }
-                else -> AppShell(
-                    appViewModel = appViewModel,
-                    uiGraph = uiGraph,
-                    appUiState = appUiState,
-                    platform = platform,
-                )
+                    else -> AppShell(
+                        appViewModel = appViewModel,
+                        uiGraph = uiGraph,
+                        appUiState = appUiState,
+                        platform = platform,
+                    )
+                }
             }
         }
     }
