@@ -695,8 +695,9 @@ internal class AndroidAppUpdateController(
         private const val DOWNLOAD_BUFFER_BYTES = 64 * 1024
         private const val UPDATE_CACHE_DIR = "app-updates"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
-        private const val STABLE_MANIFEST_URL = "https://feeluown.github.io/FuoEvolve/update/stable.json"
-        private const val CANARY_MANIFEST_URL = "https://raw.githubusercontent.com/feeluown/FuoEvolve/canary-dist/canary.json"
+        private const val GITHUB_RELEASES_API = "https://api.github.com/repos/ming960207/ming-music/releases?per_page=20"
+        private const val UPDATE_MANIFEST_ASSET = "ming-music-update.json"
+        private const val GITHUB_RELEASE_DOWNLOAD_PREFIX = "https://github.com/ming960207/ming-music/releases/download/"
         private const val WAITING_FOR_STABLE_MESSAGE =
             "已切换至稳定版。当前版本比最新稳定版更新，将在后续稳定版发布后恢复接收稳定版更新。"
         private val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")
