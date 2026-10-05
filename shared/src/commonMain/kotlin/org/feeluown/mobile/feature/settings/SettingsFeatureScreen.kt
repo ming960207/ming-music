@@ -1101,6 +1101,13 @@ private fun AppearanceFeatureSettings(
                 }
             }
         }
+        SettingsDivider(startPadding = FuoSpacing.lg)
+        SettingsRow(
+            title = "悬浮歌词",
+            supportingText = "在其他应用上层显示同步歌词和播放控制；悬浮框可直接 × 关闭",
+            enabled = enabled,
+            onClick = { LocalUriHandler.current.openUri("mingmusic://floating-lyrics") },
+        )
         if (state.statusBarLyricsAvailable) {
             SettingsDivider(startPadding = FuoSpacing.lg)
             SettingsToggleRow(
