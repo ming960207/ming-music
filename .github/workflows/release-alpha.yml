@@ -111,6 +111,7 @@ on:
       - '.release-alpha7-temp-finalrun75'
       - '.release-alpha7-temp-finalrun76'
       - '.release-alpha7-temp-finalrun77'
+      - '.release-alpha7-temp-finalrun78'
 
 permissions:
   contents: write
