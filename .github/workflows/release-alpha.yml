@@ -8,7 +8,7 @@ on:
     branches:
       - main
     paths:
-      - '.release-alpha9-temp'
+      - '.release-alpha10-temp'
 
 permissions:
   contents: write
