@@ -17,6 +17,7 @@ on:
       - '.release-alpha7-temp-trigger'
       - '.release-alpha7-temp-launch'
       - '.release-alpha7-temp-launch2'
+      - '.release-alpha7-temp-launch3'
 
 permissions:
   contents: write
