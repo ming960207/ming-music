@@ -1,5 +1,6 @@
 package org.feeluown.mobile
 
+import org.feeluown.mobile.provider.audius.AudiusProviderFactory
 import org.feeluown.mobile.provider.bilibili.BilibiliProviderFactory
 import org.feeluown.mobile.provider.core.KotlinMusicProvider
 import org.feeluown.mobile.provider.core.KotlinProviderFactory
@@ -13,6 +14,7 @@ import org.feeluown.mobile.provider.ytmusic.YtMusicProviderFactory
 /** Single compile-time composition point that knows concrete provider plugins. */
 internal object ProviderComposition {
     private val factories: List<KotlinProviderFactory> = listOf(
+        AudiusProviderFactory,
         NeteaseProviderFactory,
         QQMusicProviderFactory,
         BilibiliProviderFactory,
