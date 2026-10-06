@@ -141,12 +141,12 @@ fun ProviderContentHomeFeatureSection(
                         val forYouSections = visibleSections.filter {
                             it.feature.isDailySongs() || it.feature.isPrivateFm() ||
                                 it.feature.isBilibiliRecommendedVideos() || it.feature.isBilibiliDynamicVideos() ||
-                                it.feature.isRecommendedNewSongs()
+                                it.feature.isRecommendedNewSongs() || it.feature.id == "qqmusic_daily_playlists"
                         }
                         val otherSections = visibleSections.filterNot {
                             it.feature.isDailySongs() || it.feature.isPrivateFm() ||
                                 it.feature.isBilibiliRecommendedVideos() || it.feature.isBilibiliDynamicVideos() ||
-                                it.feature.isRecommendedNewSongs()
+                                it.feature.isRecommendedNewSongs() || it.feature.id == "qqmusic_daily_playlists"
                         }
                         if (forYouSections.isNotEmpty()) {
                             item(key = "header:for-you") {
