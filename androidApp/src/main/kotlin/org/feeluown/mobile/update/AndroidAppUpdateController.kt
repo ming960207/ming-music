@@ -297,6 +297,9 @@ internal class AndroidAppUpdateController(
         require(manifest.apk.url.startsWith("https://")) { "更新下载地址无效" }
         require(SHA256_REGEX.matches(manifest.apk.sha256)) { "更新校验值无效" }
         require(manifest.apk.size > 0L) { "更新文件大小无效" }
+        manifest.apk.signerSha256?.let { signer ->
+            require(SHA256_REGEX.matches(signer)) { "更新签名指纹无效" }
+        }
     }
 
     private suspend fun downloadAndInstallLocked(manifest: AppUpdateManifest) {
@@ -329,7 +332,7 @@ internal class AndroidAppUpdateController(
             withContext(Dispatchers.IO) { downloadApk(manifest, apkFile) }
         }
         withContext(Dispatchers.IO) {
-            check(validateDownloadedApk(apkFile, manifest)) { "下载的安装包校验失败" }
+            validateDownloadedApkOrThrow(apkFile, manifest)
         }
         return apkFile
     }
@@ -506,14 +509,44 @@ internal class AndroidAppUpdateController(
         return "MingMusic-$safeVersionName-${manifest.versionCode}.apk"
     }
 
-    private fun validateDownloadedApk(apkFile: File, manifest: AppUpdateManifest): Boolean {
-        val archive = readArchivePackageInfo(apkFile) ?: return false
-        if (archive.packageName != appContext.packageName) return false
-        if (archive.versionCodeLong() != manifest.versionCode) return false
-        if (archive.versionCodeLong() <= installedVersionCode) return false
-        val installedSigners = installedPackage.signerSha256Digests()
+    private fun validateDownloadedApk(apkFile: File, manifest: AppUpdateManifest): Boolean =
+        runCatching {
+            validateDownloadedApkOrThrow(apkFile, manifest)
+            true
+        }.getOrDefault(false)
+
+    private fun validateDownloadedApkOrThrow(apkFile: File, manifest: AppUpdateManifest) {
+        val archive = readArchivePackageInfo(apkFile)
+            ?: throw IOException("无法读取下载 APK 信息")
+        if (archive.packageName != appContext.packageName) {
+            throw IOException("安装包包名不匹配：${archive.packageName}")
+        }
+        if (archive.versionCodeLong() != manifest.versionCode) {
+            throw IOException("安装包版本号与更新清单不一致")
+        }
+        if (archive.versionCodeLong() <= installedVersionCode) {
+            throw IOException("安装包版本号未高于当前安装版本")
+        }
+
         val archiveSigners = archive.signerSha256Digests()
-        return installedSigners.isNotEmpty() && archiveSigners == installedSigners
+        if (archiveSigners.isEmpty()) {
+            throw IOException("无法读取安装包签名")
+        }
+        manifest.apk.signerSha256?.let { expected ->
+            if (archiveSigners.none { it.equals(expected, ignoreCase = true) }) {
+                throw IOException("安装包签名与发布清单不一致")
+            }
+        }
+
+        val installedSigners = installedPackage.signerSha256Digests()
+        if (installedSigners.isEmpty()) {
+            throw IOException("无法读取当前应用签名")
+        }
+        if (archiveSigners != installedSigners) {
+            throw IOException(
+                "安装包签名与当前安装版本不一致，Android 无法覆盖升级。当前版本来自旧的临时调试签名；请安装一次永久签名基线版本，之后即可无感覆盖更新。",
+            )
+        }
     }
 
     private fun launchInstaller(apkFile: File) {
