@@ -8,7 +8,7 @@ on:
     branches:
       - main
     paths:
-      - '.release-0.1.0-alpha.7'
+      - '.release-alpha7-temp'
 
 permissions:
   contents: write
@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(find androidApp/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
           cp "$APK" MingMusic-0.1.0-alpha.7.apk
           sha256sum MingMusic-0.1.0-alpha.7.apk > MingMusic-0.1.0-alpha.7.apk.sha256
           chmod +x scripts/write-update-manifest.sh
@@ -89,5 +89,6 @@ jobs:
             MingMusic-0.1.0-alpha.7.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
-            --title "Ming Music 0.1.0-alpha.7" \
-            --notes "Ming Music 0.1.0-alpha.7 正式版。全局水墨主题背景与自定义背景已覆盖主要页面；悬浮歌词支持透明背景、锁定与字体颜色切换；应用内更新增加 APK SHA-256、包名、版本号和签名证书校验。正式版固定使用永久 JKS Release 签名，保持 applicationId org.feeluown.mobile。旧临时调试签名安装需要一次迁移，之后正式版本可覆盖升级并保留配置。"
+            --prerelease \
+            --title "Ming Music 0.1.0 Alpha 7 (Temporary)" \
+            --notes "临时测试版：尚未配置永久 JKS，使用 CI debug 签名，仅用于当前功能测试。包含全局水墨/自定义主题背景、悬浮歌词与更新校验改进。此版本不能作为后续无感覆盖升级的签名基线；配置永久签名后将重新建立正式升级链路。"
