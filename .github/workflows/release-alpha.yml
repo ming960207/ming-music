@@ -21,6 +21,7 @@ on:
       - '.release-alpha7-temp-now'
       - '.release-alpha7-temp-fire'
       - '.release-alpha7-temp-exec'
+      - '.release-alpha7-temp-last'
 
 permissions:
   contents: write
