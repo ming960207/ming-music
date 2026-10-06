@@ -119,21 +119,18 @@ class KotlinProviderRepository :
         val primary = runCatching { providerMap[providerId]?.value?.resolve(track, quality) }.getOrNull()
         if (primary != null) return primary
 
-        // Open-catalog safety net: when the selected commercial/provider source
-        // cannot legally resolve a playable URL, try an ungated Audius match.
-        // This never bypasses VIP/DRM/access controls; it searches Audius for a
-        // separately published public track and plays that provider's own stream.
-        if (providerId != "audius" && "audius" in enabledProviderIds) {
-            val audius = providerMap["audius"]?.value
-            if (audius != null) {
-                val query = listOf(track.title, track.artists).filter { it.isNotBlank() }.joinToString(" ")
-                val candidates = runCatching { audius.search(query).tracks }.getOrDefault(emptyList())
-                val match = candidates
-                    .filter { fallbackTitleMatch(track.title, it.title) }
-                    .maxByOrNull { fallbackMatchScore(track, it) }
-                if (match != null && fallbackMatchScore(track, match) >= 70) {
-                    runCatching { audius.resolve(match, quality) }.getOrNull()?.let { return it }
-                }
+        // Open-catalog safety net. These providers expose separately published,
+        // publicly streamable catalog entries; no VIP/DRM/access-control bypass.
+        for (fallbackId in listOf("audius", "jamendo")) {
+            if (providerId == fallbackId || fallbackId !in enabledProviderIds) continue
+            val fallback = providerMap[fallbackId]?.value ?: continue
+            val query = listOf(track.title, track.artists).filter { it.isNotBlank() }.joinToString(" ")
+            val candidates = runCatching { fallback.search(query).tracks }.getOrDefault(emptyList())
+            val match = candidates
+                .filter { fallbackTitleMatch(track.title, it.title) }
+                .maxByOrNull { fallbackMatchScore(track, it) }
+            if (match != null && fallbackMatchScore(track, match) >= 70) {
+                runCatching { fallback.resolve(match, quality) }.getOrNull()?.let { return it }
             }
         }
         return null
