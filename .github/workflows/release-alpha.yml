@@ -1,14 +1,14 @@
-name: Release Ming Music Alpha 8 Temporary
+name: Release Ming Music Alpha 9 Temporary
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v0.1.0-alpha.8'
+      - 'v0.1.0-alpha.9'
     branches:
       - main
     paths:
-      - '.release-alpha8-temp'
+      - '.release-alpha9-temp'
 
 permissions:
   contents: write
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      MING_VERSION_NAME: 0.1.0-alpha.8
-      MING_VERSION_CODE: 100008
+      MING_VERSION_NAME: 0.1.0-alpha.9
+      MING_VERSION_CODE: 100009
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,17 +44,17 @@ jobs:
         run: |
           set -euo pipefail
           APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          cp "$APK" MingMusic-0.1.0-alpha.8.apk
-          sha256sum MingMusic-0.1.0-alpha.8.apk > MingMusic-0.1.0-alpha.8.apk.sha256
+          cp "$APK" MingMusic-0.1.0-alpha.9.apk
+          sha256sum MingMusic-0.1.0-alpha.9.apk > MingMusic-0.1.0-alpha.9.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.8" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.9" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-0.1.0-alpha.8.apk \
+            MingMusic-0.1.0-alpha.9.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.8/MingMusic-0.1.0-alpha.8.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.9/MingMusic-0.1.0-alpha.9.apk"
 
       - name: Publish GitHub prerelease
         env:
@@ -62,15 +62,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v0.1.0-alpha.8 >/dev/null 2>&1; then
-            echo "Release v0.1.0-alpha.8 already exists; refusing to overwrite it."
+          if gh release view v0.1.0-alpha.9 >/dev/null 2>&1; then
+            echo "Release v0.1.0-alpha.9 already exists; refusing to overwrite it."
             exit 1
           fi
-          gh release create v0.1.0-alpha.8 \
-            MingMusic-0.1.0-alpha.8.apk \
-            MingMusic-0.1.0-alpha.8.apk.sha256 \
+          gh release create v0.1.0-alpha.9 \
+            MingMusic-0.1.0-alpha.9.apk \
+            MingMusic-0.1.0-alpha.9.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Ming Music 0.1.0 Alpha 8 (Temporary)" \
-            --notes "临时测试版：尚未配置永久 JKS，使用 CI debug 签名，仅用于当前功能测试。新增 Audius 开放音乐源、Jamendo 国际开放音乐源，以及原始来源失败后的 Audius → Jamendo 自动播放兜底。保留现有水墨主题、悬浮歌词与更新校验。此版本不能作为后续无感覆盖升级的永久签名基线。"
+            --notes "临时测试版：尚未配置永久 JKS，使用 CI debug 签名，仅用于当前功能测试。包含 Alpha 8 的 Audius、Jamendo 开放音乐源与自动播放兜底，并加入 QQ 音乐推荐页兼容修复和 QQ MV 播放地址解析修复。保留现有水墨主题、悬浮歌词与更新校验。此版本不能作为后续无感覆盖升级的永久签名基线。"
