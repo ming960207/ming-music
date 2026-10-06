@@ -116,8 +116,51 @@ class KotlinProviderRepository :
         val providerId = track.source.ifBlank {
             splitResourceId(track.providerId ?: track.id).first
         }
-        return providerMap[providerId]?.value?.resolve(track, quality)
+        val primary = runCatching { providerMap[providerId]?.value?.resolve(track, quality) }.getOrNull()
+        if (primary != null) return primary
+
+        // Open-catalog safety net: when the selected commercial/provider source
+        // cannot legally resolve a playable URL, try an ungated Audius match.
+        // This never bypasses VIP/DRM/access controls; it searches Audius for a
+        // separately published public track and plays that provider's own stream.
+        if (providerId != "audius" && "audius" in enabledProviderIds) {
+            val audius = providerMap["audius"]?.value
+            if (audius != null) {
+                val query = listOf(track.title, track.artists).filter { it.isNotBlank() }.joinToString(" ")
+                val candidates = runCatching { audius.search(query).tracks }.getOrDefault(emptyList())
+                val match = candidates
+                    .filter { fallbackTitleMatch(track.title, it.title) }
+                    .maxByOrNull { fallbackMatchScore(track, it) }
+                if (match != null && fallbackMatchScore(track, match) >= 70) {
+                    runCatching { audius.resolve(match, quality) }.getOrNull()?.let { return it }
+                }
+            }
+        }
+        return null
     }
+
+    private fun fallbackMatchScore(original: MusicTrack, candidate: MusicTrack): Int {
+        var score = if (fallbackTitleMatch(original.title, candidate.title)) 70 else 0
+        val originalArtist = fallbackNormalize(original.artists)
+        val candidateArtist = fallbackNormalize(candidate.artists)
+        if (originalArtist.isNotBlank() && candidateArtist.isNotBlank()) {
+            if (originalArtist == candidateArtist) score += 30
+            else if (originalArtist.contains(candidateArtist) || candidateArtist.contains(originalArtist)) score += 15
+        }
+        val a = original.durationMs
+        val b = candidate.durationMs
+        if (a != null && b != null && kotlin.math.abs(a - b) <= 8_000L) score += 10
+        return score
+    }
+
+    private fun fallbackTitleMatch(a: String, b: String): Boolean {
+        val x = fallbackNormalize(a); val y = fallbackNormalize(b)
+        return x.isNotBlank() && y.isNotBlank() && (x == y || x.contains(y) || y.contains(x))
+    }
+
+    private fun fallbackNormalize(value: String): String =
+        value.lowercase().filter { it.isLetterOrDigit() }
+
 
     override suspend fun lyrics(track: MusicTrack): String? {
         initialize()
