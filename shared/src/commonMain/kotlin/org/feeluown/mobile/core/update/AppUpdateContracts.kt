@@ -28,6 +28,7 @@ data class AppUpdateApk(
     val url: String,
     val sha256: String,
     val size: Long,
+    val signerSha256: String? = null,
 )
 
 enum class AppUpdateDecision {
