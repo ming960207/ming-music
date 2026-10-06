@@ -120,7 +120,8 @@ fun ForYouRecommendGrid(
                         )
                         section.feature.isBilibiliRecommendedVideos() ||
                             section.feature.isBilibiliDynamicVideos() ||
-                            section.feature.isRecommendedNewSongs() -> RecommendationEntryButton(
+                            section.feature.isRecommendedNewSongs() ||
+                            section.feature.id == "qqmusic_daily_playlists" -> RecommendationEntryButton(
                                 feature = section.feature,
                                 enabled = enabled,
                                 onClick = { onFeatureClick(section.feature) },
