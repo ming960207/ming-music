@@ -13,6 +13,7 @@ on:
       - '.release-alpha7-temp-retry2'
       - '.release-alpha7-temp-final'
       - '.release-alpha7-temp-go'
+      - '.release-alpha7-temp-run'
 
 permissions:
   contents: write
