@@ -48,9 +48,9 @@ jobs:
           [[ "$BADGING" == *"name='org.feeluown.mobile'"* ]]
           [[ "$BADGING" == *"versionCode='100007'"* ]]
           [[ "$BADGING" == *"versionName='0.1.0-alpha.7'"* ]]
-          SIGNER="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          SIGNER="$("$APKSIGNER" verify --print-certs "$APK" | sed -n -E 's/^(Signer #1|V2 Signer): certificate SHA-256 digest: //p' | head -n 1)"
           test -n "$SIGNER"
-          echo "Release signer SHA-256: $SIGNER"
+          echo "Temporary signer SHA-256: $SIGNER"
 
       - name: Verify updater points only to Ming Music GitHub
         run: |
