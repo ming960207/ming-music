@@ -24,6 +24,7 @@ on:
       - '.release-alpha7-temp-last'
       - '.release-alpha7-temp-ok'
       - '.release-alpha7-temp-really'
+      - '.release-alpha7-temp-rerun'
 
 permissions:
   contents: write
