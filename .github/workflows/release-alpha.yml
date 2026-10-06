@@ -15,6 +15,7 @@ on:
       - '.release-alpha7-temp-go'
       - '.release-alpha7-temp-run'
       - '.release-alpha7-temp-trigger'
+      - '.release-alpha7-temp-launch'
 
 permissions:
   contents: write
