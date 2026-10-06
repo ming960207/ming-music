@@ -55,10 +55,16 @@ fun FuoTheme(
         paletteStyle = themePaletteStyle,
         colorSpec = themeColorSpec,
     )
-    val animatedColorScheme = rememberAnimatedColorScheme(
+    val animatedBaseColorScheme = rememberAnimatedColorScheme(
         target = targetColorScheme,
         labelPrefix = "app theme",
     )
+    // Ming Music uses a global image background. Material3 Scaffold/Surface defaults
+    // must therefore be transparent; opaque white surfaces previously hid the
+    // selected background on every page except Settings.
+    val animatedColorScheme = remember(animatedBaseColorScheme) {
+        transparentAppSurfaces(animatedBaseColorScheme)
+    }
     CompositionLocalProvider(
         LocalThemePaletteStyle provides themePaletteStyle,
         LocalThemeColorSpec provides themeColorSpec,
@@ -70,6 +76,20 @@ fun FuoTheme(
         }
     }
 }
+
+
+private fun transparentAppSurfaces(base: ColorScheme): ColorScheme = base.copy(
+    background = Color.Transparent,
+    surface = Color.Transparent,
+    surfaceBright = Color.Transparent,
+    surfaceDim = Color.Transparent,
+    surfaceContainer = base.surfaceContainer.copy(alpha = 0.72f),
+    surfaceContainerHigh = base.surfaceContainerHigh.copy(alpha = 0.78f),
+    surfaceContainerHighest = base.surfaceContainerHighest.copy(alpha = 0.82f),
+    surfaceContainerLow = base.surfaceContainerLow.copy(alpha = 0.64f),
+    surfaceContainerLowest = base.surfaceContainerLowest.copy(alpha = 0.58f),
+    surfaceVariant = base.surfaceVariant.copy(alpha = 0.72f),
+)
 
 @Composable
 internal fun ProvidePlaybackColorEnvironment(
