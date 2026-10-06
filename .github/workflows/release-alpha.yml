@@ -1,14 +1,14 @@
-name: Release Ming Music 1.0.0
+name: Release Ming Music Alpha 7 Temporary
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v1.0.0'
+      - 'v0.1.0-alpha.7'
     branches:
       - main
     paths:
-      - '.release-1.0.0'
+      - '.release-0.1.0-alpha.7'
 
 permissions:
   contents: write
@@ -19,12 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      MING_VERSION_NAME: 1.0.0
-      MING_VERSION_CODE: 1000000
-      ANDROID_SIGNING_KEY_JKS_BASE64: ${{ secrets.ANDROID_SIGNING_KEY_JKS_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      MING_VERSION_NAME: 0.1.0-alpha.7
+      MING_VERSION_CODE: 100007
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,36 +31,14 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Require permanent Android signer
+      - name: Build temporary debug-signed APK
+        run: ./gradlew :androidApp:assembleDebug --stacktrace
+
+      - name: Verify APK identity and temporary signature
         shell: bash
         run: |
           set -euo pipefail
-          for name in ANDROID_SIGNING_KEY_JKS_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing required signing secret: $name"
-              exit 1
-            fi
-          done
-          if [[ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]]; then
-            ANDROID_KEYSTORE_PASSWORD="$ANDROID_KEY_PASSWORD"
-            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-          fi
-          KEYSTORE_PATH="$RUNNER_TEMP/ming-music-release.jks"
-          printf '%s' "$ANDROID_SIGNING_KEY_JKS_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          echo "FUO_SIGNING_STORE_FILE=$KEYSTORE_PATH" >> "$GITHUB_ENV"
-          echo "FUO_SIGNING_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-          echo "FUO_SIGNING_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
-          echo "FUO_SIGNING_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
-          keytool -list             -keystore "$KEYSTORE_PATH"             -storepass "$ANDROID_KEYSTORE_PASSWORD"             -alias "$ANDROID_KEY_ALIAS" >/dev/null
-
-      - name: Build permanently signed release APK
-        run: ./gradlew :androidApp:assembleRelease --stacktrace
-
-      - name: Verify APK identity and signature
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="$(find androidApp/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
           test -n "$APK" && test -f "$APK"
           APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner"
           AAPT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/aapt"
@@ -72,8 +46,8 @@ jobs:
           BADGING="$("$AAPT" dump badging "$APK" | head -n 1)"
           echo "$BADGING"
           [[ "$BADGING" == *"name='org.feeluown.mobile'"* ]]
-          [[ "$BADGING" == *"versionCode='1000000'"* ]]
-          [[ "$BADGING" == *"versionName='1.0.0'"* ]]
+          [[ "$BADGING" == *"versionCode='100007'"* ]]
+          [[ "$BADGING" == *"versionName='0.1.0-alpha.7'"* ]]
           SIGNER="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
           test -n "$SIGNER"
           echo "Release signer SHA-256: $SIGNER"
@@ -88,17 +62,17 @@ jobs:
         run: |
           set -euo pipefail
           APK="$(find androidApp/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
-          cp "$APK" MingMusic-1.0.0.apk
-          sha256sum MingMusic-1.0.0.apk > MingMusic-1.0.0.apk.sha256
+          cp "$APK" MingMusic-0.1.0-alpha.7.apk
+          sha256sum MingMusic-0.1.0-alpha.7.apk > MingMusic-0.1.0-alpha.7.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v1.0.0" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.7" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-1.0.0.apk \
+            MingMusic-0.1.0-alpha.7.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v1.0.0/MingMusic-1.0.0.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.7/MingMusic-0.1.0-alpha.7.apk"
 
       - name: Publish GitHub prerelease
         env:
@@ -106,14 +80,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v1.0.0 >/dev/null 2>&1; then
-            echo "Release v1.0.0 already exists; refusing to overwrite it."
+          if gh release view v0.1.0-alpha.7 >/dev/null 2>&1; then
+            echo "Release v0.1.0-alpha.7 already exists; refusing to overwrite it."
             exit 1
           fi
-          gh release create v1.0.0 \
-            MingMusic-1.0.0.apk \
-            MingMusic-1.0.0.apk.sha256 \
+          gh release create v0.1.0-alpha.7 \
+            MingMusic-0.1.0-alpha.7.apk \
+            MingMusic-0.1.0-alpha.7.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
-            --title "Ming Music 1.0.0" \
-            --notes "Ming Music 1.0.0 正式版。全局水墨主题背景与自定义背景已覆盖主要页面；悬浮歌词支持透明背景、锁定与字体颜色切换；应用内更新增加 APK SHA-256、包名、版本号和签名证书校验。正式版固定使用永久 JKS Release 签名，保持 applicationId org.feeluown.mobile。旧临时调试签名安装需要一次迁移，之后正式版本可覆盖升级并保留配置。"
+            --title "Ming Music 0.1.0-alpha.7" \
+            --notes "Ming Music 0.1.0-alpha.7 正式版。全局水墨主题背景与自定义背景已覆盖主要页面；悬浮歌词支持透明背景、锁定与字体颜色切换；应用内更新增加 APK SHA-256、包名、版本号和签名证书校验。正式版固定使用永久 JKS Release 签名，保持 applicationId org.feeluown.mobile。旧临时调试签名安装需要一次迁移，之后正式版本可覆盖升级并保留配置。"
