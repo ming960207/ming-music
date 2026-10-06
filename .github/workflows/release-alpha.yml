@@ -20,6 +20,7 @@ on:
       - '.release-alpha7-temp-launch3'
       - '.release-alpha7-temp-now'
       - '.release-alpha7-temp-fire'
+      - '.release-alpha7-temp-exec'
 
 permissions:
   contents: write
