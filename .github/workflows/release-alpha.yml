@@ -30,6 +30,7 @@ on:
       - '.release-alpha7-temp-rerun4'
       - '.release-alpha7-temp-rerun5'
       - '.release-alpha7-temp-rerun6'
+      - '.release-alpha7-temp-rerun7'
 
 permissions:
   contents: write
