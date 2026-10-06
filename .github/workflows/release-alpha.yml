@@ -93,6 +93,7 @@ on:
       - '.release-alpha7-temp-finalrun57'
       - '.release-alpha7-temp-finalrun58'
       - '.release-alpha7-temp-finalrun59'
+      - '.release-alpha7-temp-finalrun60'
 
 permissions:
   contents: write
