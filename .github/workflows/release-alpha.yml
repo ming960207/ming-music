@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - '.release-alpha7-temp'
+      - '.release-alpha7-temp-retry'
 
 permissions:
   contents: write
