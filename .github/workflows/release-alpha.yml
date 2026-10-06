@@ -18,6 +18,7 @@ on:
       - '.release-alpha7-temp-launch'
       - '.release-alpha7-temp-launch2'
       - '.release-alpha7-temp-launch3'
+      - '.release-alpha7-temp-now'
 
 permissions:
   contents: write
