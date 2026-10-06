@@ -48,6 +48,8 @@ find_android_tool() {
 
 AAPT="$(find_android_tool aapt)" || exit 1
 readonly AAPT
+APKSIGNER="$(find_android_tool apksigner)" || exit 1
+readonly APKSIGNER
 
 badging="$($AAPT dump badging "$APK_PATH")"
 actual_package="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
@@ -69,6 +71,11 @@ fi
 
 sha256="$(sha256sum "$APK_PATH" | awk '{print $1}')"
 size="$(stat -c '%s' "$APK_PATH")"
+signer_sha256="$("$APKSIGNER" verify --print-certs "$APK_PATH" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr 'A-F' 'a-f')"
+if [[ ! "$signer_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Unable to determine APK signer SHA-256 for $APK_PATH" >&2
+    exit 1
+fi
 published_at="${PUBLISHED_AT:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
@@ -78,6 +85,7 @@ MANIFEST_VERSION_NAME="$version_name" \
 MANIFEST_APK_URL="$APK_URL" \
 MANIFEST_APK_SHA256="$sha256" \
 MANIFEST_APK_SIZE="$size" \
+MANIFEST_APK_SIGNER_SHA256="$signer_sha256" \
 MANIFEST_PUBLISHED_AT="$published_at" \
 MANIFEST_COMMIT_SHA="${COMMIT_SHA:-}" \
 MANIFEST_WORKFLOW_RUN_ID="${WORKFLOW_RUN_ID:-}" \
@@ -98,6 +106,7 @@ payload = {
         "url": os.environ["MANIFEST_APK_URL"],
         "sha256": os.environ["MANIFEST_APK_SHA256"],
         "size": int(os.environ["MANIFEST_APK_SIZE"]),
+        "signerSha256": os.environ["MANIFEST_APK_SIGNER_SHA256"],
     },
 }
 commit_sha = os.environ.get("MANIFEST_COMMIT_SHA")
@@ -115,5 +124,5 @@ with open(output, "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
 
-printf 'Generated %s update manifest: %s (versionCode=%s, versionName=%s)\n' \
-    "$CHANNEL" "$OUTPUT_PATH" "$version_code" "$version_name"
+printf 'Generated %s update manifest: %s (versionCode=%s, versionName=%s, signer=%s)\n' \
+    "$CHANNEL" "$OUTPUT_PATH" "$version_code" "$version_name" "$signer_sha256"
