@@ -36,6 +36,7 @@ on:
       - '.release-alpha7-temp-rerun10'
       - '.release-alpha7-temp-finalrun'
       - '.release-alpha7-temp-finalrun2'
+      - '.release-alpha7-temp-finalrun3'
 
 permissions:
   contents: write
