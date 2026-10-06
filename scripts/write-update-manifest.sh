@@ -71,7 +71,7 @@ fi
 
 sha256="$(sha256sum "$APK_PATH" | awk '{print $1}')"
 size="$(stat -c '%s' "$APK_PATH")"
-signer_sha256="$("$APKSIGNER" verify --print-certs "$APK_PATH" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr 'A-F' 'a-f')"
+signer_sha256="$("$APKSIGNER" verify --print-certs "$APK_PATH" | sed -n -E 's/^(Signer #1|V2 Signer): certificate SHA-256 digest: //p' | head -n 1 | tr 'A-F' 'a-f')"
 if [[ ! "$signer_sha256" =~ ^[0-9a-f]{64}$ ]]; then
     echo "Unable to determine APK signer SHA-256 for $APK_PATH" >&2
     exit 1
