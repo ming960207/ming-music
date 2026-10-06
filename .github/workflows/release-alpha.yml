@@ -11,6 +11,7 @@ on:
       - '.release-alpha7-temp'
       - '.release-alpha7-temp-retry'
       - '.release-alpha7-temp-retry2'
+      - '.release-alpha7-temp-final'
 
 permissions:
   contents: write
