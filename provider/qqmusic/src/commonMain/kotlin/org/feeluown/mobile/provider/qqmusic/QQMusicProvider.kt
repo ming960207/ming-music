@@ -645,12 +645,9 @@ class QQMusicProvider(
             """.trimIndent(),
         )
         val data = root.obj("recomPlaylist")?.obj("data") ?: root.obj("recomPlaylist") ?: root
-        val values = firstNonEmpty(
-            data.array("v_hot"),
-            data.array("list"),
-            data.array("playlist"),
-            data.array("playlists"),
-        )
+        val values = data.array("v_hot").ifEmpty { data.array("list") }
+            .ifEmpty { data.array("playlist") }
+            .ifEmpty { data.array("playlists") }
         return values.mapNotNull { item ->
             val value = item.asObject()
             val identifier = value.string("content_id").ifBlank { value.string("id") }
