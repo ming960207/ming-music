@@ -1,121 +1,14 @@
-name: Release Ming Music Alpha 7 Temporary
+name: Release Ming Music Alpha 8 Temporary
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v0.1.0-alpha.7'
+      - 'v0.1.0-alpha.8'
     branches:
       - main
     paths:
-      - '.release-alpha7-temp'
-      - '.release-alpha7-temp-retry'
-      - '.release-alpha7-temp-final'
-      - '.release-alpha7-temp-manifestfix'
-      - '.release-alpha7-temp-final'
-      - '.release-alpha7-temp-go'
-      - '.release-alpha7-temp-run'
-      - '.release-alpha7-temp-trigger'
-      - '.release-alpha7-temp-launch'
-      - '.release-alpha7-temp-launch2'
-      - '.release-alpha7-temp-launch3'
-      - '.release-alpha7-temp-now'
-      - '.release-alpha7-temp-fire'
-      - '.release-alpha7-temp-exec'
-      - '.release-alpha7-temp-last'
-      - '.release-alpha7-temp-ok'
-      - '.release-alpha7-temp-really'
-      - '.release-alpha7-temp-rerun'
-      - '.release-alpha7-temp-rerun2'
-      - '.release-alpha7-temp-rerun3'
-      - '.release-alpha7-temp-rerun4'
-      - '.release-alpha7-temp-rerun5'
-      - '.release-alpha7-temp-rerun6'
-      - '.release-alpha7-temp-rerun7'
-      - '.release-alpha7-temp-rerun8'
-      - '.release-alpha7-temp-rerun9'
-      - '.release-alpha7-temp-rerun10'
-      - '.release-alpha7-temp-finalrun'
-      - '.release-alpha7-temp-finalrun2'
-      - '.release-alpha7-temp-finalrun3'
-      - '.release-alpha7-temp-finalrun4'
-      - '.release-alpha7-temp-finalrun5'
-      - '.release-alpha7-temp-finalrun6'
-      - '.release-alpha7-temp-finalrun7'
-      - '.release-alpha7-temp-finalrun8'
-      - '.release-alpha7-temp-finalrun9'
-      - '.release-alpha7-temp-finalrun10'
-      - '.release-alpha7-temp-finalrun11'
-      - '.release-alpha7-temp-finalrun12'
-      - '.release-alpha7-temp-finalrun13'
-      - '.release-alpha7-temp-finalrun14'
-      - '.release-alpha7-temp-finalrun15'
-      - '.release-alpha7-temp-finalrun16'
-      - '.release-alpha7-temp-finalrun17'
-      - '.release-alpha7-temp-finalrun18'
-      - '.release-alpha7-temp-finalrun19'
-      - '.release-alpha7-temp-finalrun20'
-      - '.release-alpha7-temp-finalrun21'
-      - '.release-alpha7-temp-finalrun22'
-      - '.release-alpha7-temp-finalrun23'
-      - '.release-alpha7-temp-finalrun24'
-      - '.release-alpha7-temp-finalrun25'
-      - '.release-alpha7-temp-finalrun26'
-      - '.release-alpha7-temp-finalrun27'
-      - '.release-alpha7-temp-finalrun28'
-      - '.release-alpha7-temp-finalrun29'
-      - '.release-alpha7-temp-finalrun30'
-      - '.release-alpha7-temp-finalrun31'
-      - '.release-alpha7-temp-finalrun32'
-      - '.release-alpha7-temp-finalrun33'
-      - '.release-alpha7-temp-finalrun34'
-      - '.release-alpha7-temp-finalrun35'
-      - '.release-alpha7-temp-finalrun36'
-      - '.release-alpha7-temp-finalrun37'
-      - '.release-alpha7-temp-finalrun38'
-      - '.release-alpha7-temp-finalrun39'
-      - '.release-alpha7-temp-finalrun40'
-      - '.release-alpha7-temp-finalrun41'
-      - '.release-alpha7-temp-finalrun42'
-      - '.release-alpha7-temp-finalrun43'
-      - '.release-alpha7-temp-finalrun44'
-      - '.release-alpha7-temp-finalrun45'
-      - '.release-alpha7-temp-finalrun46'
-      - '.release-alpha7-temp-finalrun47'
-      - '.release-alpha7-temp-finalrun48'
-      - '.release-alpha7-temp-finalrun49'
-      - '.release-alpha7-temp-finalrun50'
-      - '.release-alpha7-temp-finalrun51'
-      - '.release-alpha7-temp-finalrun52'
-      - '.release-alpha7-temp-finalrun53'
-      - '.release-alpha7-temp-finalrun54'
-      - '.release-alpha7-temp-finalrun55'
-      - '.release-alpha7-temp-finalrun56'
-      - '.release-alpha7-temp-finalrun57'
-      - '.release-alpha7-temp-finalrun58'
-      - '.release-alpha7-temp-finalrun59'
-      - '.release-alpha7-temp-finalrun60'
-      - '.release-alpha7-temp-finalrun61'
-      - '.release-alpha7-temp-finalrun62'
-      - '.release-alpha7-temp-finalrun63'
-      - '.release-alpha7-temp-finalrun64'
-      - '.release-alpha7-temp-finalrun65'
-      - '.release-alpha7-temp-finalrun66'
-      - '.release-alpha7-temp-finalrun67'
-      - '.release-alpha7-temp-finalrun68'
-      - '.release-alpha7-temp-finalrun69'
-      - '.release-alpha7-temp-finalrun70'
-      - '.release-alpha7-temp-finalrun71'
-      - '.release-alpha7-temp-finalrun72'
-      - '.release-alpha7-temp-finalrun73'
-      - '.release-alpha7-temp-finalrun74'
-      - '.release-alpha7-temp-finalrun75'
-      - '.release-alpha7-temp-finalrun76'
-      - '.release-alpha7-temp-finalrun77'
-      - '.release-alpha7-temp-finalrun78'
-      - '.release-alpha7-temp-finalrun79'
-      - '.release-alpha7-temp-finalrun80'
-      - '.release-alpha7-temp-finalrun81'
+      - '.release-alpha8-temp'
 
 permissions:
   contents: write
@@ -126,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      MING_VERSION_NAME: 0.1.0-alpha.7
-      MING_VERSION_CODE: 100007
+      MING_VERSION_NAME: 0.1.0-alpha.8
+      MING_VERSION_CODE: 100008
     steps:
       - uses: actions/checkout@v4
         with:
@@ -151,17 +44,17 @@ jobs:
         run: |
           set -euo pipefail
           APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          cp "$APK" MingMusic-0.1.0-alpha.7.apk
-          sha256sum MingMusic-0.1.0-alpha.7.apk > MingMusic-0.1.0-alpha.7.apk.sha256
+          cp "$APK" MingMusic-0.1.0-alpha.8.apk
+          sha256sum MingMusic-0.1.0-alpha.8.apk > MingMusic-0.1.0-alpha.8.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.7" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.8" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-0.1.0-alpha.7.apk \
+            MingMusic-0.1.0-alpha.8.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.7/MingMusic-0.1.0-alpha.7.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.8/MingMusic-0.1.0-alpha.8.apk"
 
       - name: Publish GitHub prerelease
         env:
@@ -169,15 +62,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v0.1.0-alpha.7 >/dev/null 2>&1; then
-            echo "Release v0.1.0-alpha.7 already exists; refusing to overwrite it."
+          if gh release view v0.1.0-alpha.8 >/dev/null 2>&1; then
+            echo "Release v0.1.0-alpha.8 already exists; refusing to overwrite it."
             exit 1
           fi
-          gh release create v0.1.0-alpha.7 \
-            MingMusic-0.1.0-alpha.7.apk \
-            MingMusic-0.1.0-alpha.7.apk.sha256 \
+          gh release create v0.1.0-alpha.8 \
+            MingMusic-0.1.0-alpha.8.apk \
+            MingMusic-0.1.0-alpha.8.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Ming Music 0.1.0 Alpha 7 (Temporary)" \
-            --notes "临时测试版：尚未配置永久 JKS，使用 CI debug 签名，仅用于当前功能测试。包含全局水墨/自定义主题背景、悬浮歌词与更新校验改进。此版本不能作为后续无感覆盖升级的签名基线；配置永久签名后将重新建立正式升级链路。"
+            --title "Ming Music 0.1.0 Alpha 8 (Temporary)" \
+            --notes "临时测试版：尚未配置永久 JKS，使用 CI debug 签名，仅用于当前功能测试。新增 Audius 开放音乐源、Jamendo 国际开放音乐源，以及原始来源失败后的 Audius → Jamendo 自动播放兜底。保留现有水墨主题、悬浮歌词与更新校验。此版本不能作为后续无感覆盖升级的永久签名基线。"
