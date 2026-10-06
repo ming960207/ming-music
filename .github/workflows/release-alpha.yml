@@ -11,6 +11,7 @@ on:
       - '.release-alpha7-temp'
       - '.release-alpha7-temp-retry'
       - '.release-alpha7-temp-final'
+      - '.release-alpha7-temp-final'
       - '.release-alpha7-temp-go'
       - '.release-alpha7-temp-run'
       - '.release-alpha7-temp-trigger'
