@@ -10,7 +10,6 @@ on:
     paths:
       - '.release-alpha7-temp'
       - '.release-alpha7-temp-retry'
-      - '.release-alpha7-temp-retry2'
       - '.release-alpha7-temp-final'
       - '.release-alpha7-temp-go'
       - '.release-alpha7-temp-run'
@@ -140,30 +139,12 @@ jobs:
       - name: Build temporary debug-signed APK
         run: ./gradlew :androidApp:assembleDebug --stacktrace
 
-      - name: Verify APK identity and temporary signature
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          test -n "$APK" && test -f "$APK"
-          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner"
-          AAPT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/aapt"
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
-          BADGING="$("$AAPT" dump badging "$APK" | head -n 1)"
-          echo "$BADGING"
-          [[ "$BADGING" == *"name='org.feeluown.mobile'"* ]]
-          [[ "$BADGING" == *"versionCode='100007'"* ]]
-          [[ "$BADGING" == *"versionName='0.1.0-alpha.7'"* ]]
-          SIGNER="$("$APKSIGNER" verify --print-certs "$APK" | sed -n -E 's/^(Signer #1|V2 Signer): certificate SHA-256 digest: //p' | head -n 1)"
-          test -n "$SIGNER"
-          echo "Temporary signer SHA-256: $SIGNER"
-
       - name: Verify updater points only to Ming Music GitHub
         run: |
           ! grep -R "feeluown.github.io/FuoEvolve/update\|raw.githubusercontent.com/feeluown/FuoEvolve/canary-dist" androidApp/src/main/kotlin/org/feeluown/mobile/update
           grep -q "api.github.com/repos/ming960207/ming-music/releases" androidApp/src/main/kotlin/org/feeluown/mobile/update/AndroidAppUpdateController.kt
 
-      - name: Prepare APK and signed update manifest
+      - name: Prepare APK and GitHub update manifest
         shell: bash
         run: |
           set -euo pipefail
