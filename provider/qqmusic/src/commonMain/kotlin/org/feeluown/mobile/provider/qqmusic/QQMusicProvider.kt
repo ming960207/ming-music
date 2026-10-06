@@ -284,23 +284,30 @@ class QQMusicProvider(
         // QQ returns several MP4 qualities. Prefer the last/highest usable
         // free-flow URL; older responses can leave the first quality empty or expired.
         val mp4 = data.array("mp4").map { it.asObject() }
-        val url = mp4.asReversed().asSequence()
-            .flatMap { item ->
-                item.array("freeflow_url").asSequence()
-                    .mapNotNull { value -> value.asString().takeIf { it.startsWith("http") } }
-            }
-            .firstOrNull()
-            ?: mp4.asReversed().asSequence().mapNotNull { item ->
-                val host = item.array("url").firstOrNull()?.asString()?.trimEnd('/')
+        // Keep every usable CDN/quality candidate. QQ frequently returns a valid
+        // MV response whose first/highest URL is temporarily unavailable on a
+        // particular network; Android can transparently retry the fallbacks.
+        val urls = buildList {
+            mp4.asReversed().forEach { item ->
+                item.array("freeflow_url").forEach { value ->
+                    value.asString().takeIf { it.startsWith("http") }?.let(::add)
+                }
                 val mediaPath = item.stringOrNull("urlPath")?.takeIf(String::isNotBlank)
                     ?: item.stringOrNull("cn")?.takeIf(String::isNotBlank)
-                if (!host.isNullOrBlank() && !mediaPath.isNullOrBlank()) host + "/" + mediaPath.trimStart('/') else null
-            }.firstOrNull()
-            ?: return VideoPlaybackPayload(video = video)
+                if (!mediaPath.isNullOrBlank()) {
+                    item.array("url").forEach { hostValue ->
+                        val host = hostValue.asString().trimEnd('/')
+                        if (host.startsWith("http")) add(host + "/" + mediaPath.trimStart('/'))
+                    }
+                }
+            }
+        }.distinct()
+        val url = urls.firstOrNull() ?: return VideoPlaybackPayload(video = video)
         return VideoPlaybackPayload(
             video = video,
             url = url,
             videoUrl = url,
+            fallbackUrls = urls.drop(1),
             headers = mapOf(
                 "Referer" to "https://y.qq.com/",
                 "User-Agent" to DEFAULT_USER_AGENT,
