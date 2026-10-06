@@ -281,16 +281,30 @@ class QQMusicProvider(
             """.trimIndent(),
         )
         val data = root.obj("getMvUrl")?.obj("data")?.obj(identifier) ?: return VideoPlaybackPayload(video = video)
-        val url = data.array("mp4").asSequence()
-            .map { it.asObject() }
-            .flatMap { it.array("freeflow_url").asSequence().mapNotNull { value -> value.asString().takeIf(String::isNotBlank) } }
+        // QQ returns several MP4 qualities. Prefer the last/highest usable
+        // free-flow URL; older responses can leave the first quality empty or expired.
+        val mp4 = data.array("mp4").map { it.asObject() }
+        val url = mp4.asReversed().asSequence()
+            .flatMap { item ->
+                item.array("freeflow_url").asSequence()
+                    .mapNotNull { value -> value.asString().takeIf { it.startsWith("http") } }
+            }
             .firstOrNull()
+            ?: mp4.asReversed().asSequence().mapNotNull { item ->
+                val host = item.array("url").firstOrNull()?.asString()?.trimEnd('/')
+                val mediaPath = item.stringOrNull("urlPath")?.takeIf(String::isNotBlank)
+                    ?: item.stringOrNull("cn")?.takeIf(String::isNotBlank)
+                if (!host.isNullOrBlank() && !mediaPath.isNullOrBlank()) host + "/" + mediaPath.trimStart('/') else null
+            }.firstOrNull()
             ?: return VideoPlaybackPayload(video = video)
         return VideoPlaybackPayload(
             video = video,
             url = url,
             videoUrl = url,
-            headers = mapOf("Referer" to "https://y.qq.com/"),
+            headers = mapOf(
+                "Referer" to "https://y.qq.com/",
+                "User-Agent" to DEFAULT_USER_AGENT,
+            ),
             quality = "video",
         )
     }
@@ -630,7 +644,14 @@ class QQMusicProvider(
             {"recomPlaylist":{"module":"playlist.HotRecommendServer","method":"get_hot_recommend","param":{"cmd":2,"async":1}}}
             """.trimIndent(),
         )
-        return root.obj("recomPlaylist")?.obj("data")?.array("v_hot").orEmpty().mapNotNull { item ->
+        val data = root.obj("recomPlaylist")?.obj("data") ?: root.obj("recomPlaylist") ?: root
+        val values = firstNonEmpty(
+            data.array("v_hot"),
+            data.array("list"),
+            data.array("playlist"),
+            data.array("playlists"),
+        )
+        return values.mapNotNull { item ->
             val value = item.asObject()
             val identifier = value.string("content_id").ifBlank { value.string("id") }
             if (identifier.isBlank()) return@mapNotNull null
@@ -650,7 +671,11 @@ class QQMusicProvider(
         offset: Int,
         limit: Int,
     ): org.feeluown.mobile.ProviderContentSection {
+        // The personalized feed endpoint changes shape frequently. If the
+        // daily card is absent, fall back to QQ's hot/recommended playlist
+        // rather than rendering an empty recommendation page.
         val dailyPlaylist = recommendedDailyPlaylist()
+            ?: recommendedPlaylists().firstOrNull()
             ?: return org.feeluown.mobile.ProviderContentSection(feature, nextOffset = offset)
         val detail = playlistDetail(dailyPlaylist, offset, limit)
         return org.feeluown.mobile.ProviderContentSection(
