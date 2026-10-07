@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -330,10 +331,12 @@ private class SearchController<Track, ProviderResults>(
                             val providerIds = if (selectedProviderIds.isEmpty()) availableProviderIds else availableProviderIds.filter { it in selectedProviderIds }
                             val providerDeferreds = providerIds.map { providerId ->
                                 async {
-                                    runCatching { providerRepository.searchAll(keyword, providerId) }
-                                        .getOrElse { throwable ->
-                                            resultOperations.empty(failureMessage(throwable, providerId))
-                                        }
+                                    withTimeoutOrNull(6_000) {
+                                        runCatching { providerRepository.searchAll(keyword, providerId) }
+                                            .getOrElse { throwable ->
+                                                resultOperations.empty(failureMessage(throwable, providerId))
+                                            }
+                                    } ?: resultOperations.empty("音源响应超时")
                                 }
                             }
                             val local = localDeferred.await()

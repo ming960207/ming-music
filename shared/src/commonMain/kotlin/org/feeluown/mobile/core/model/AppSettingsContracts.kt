@@ -86,18 +86,18 @@ data class AppSettings(
     val providerHeaderInputs: Map<String, ProviderHeaderInput> = emptyMap(),
     val enabledProviderIds: Set<String> = DEFAULT_ENABLED_PROVIDER_IDS,
     val providerOrderIds: List<String> = DEFAULT_PROVIDER_ORDER_IDS,
-    val searchProviderIds: Set<String> = emptySet(),
-    val recommendProviderIds: Set<String> = emptySet(),
-    val exploreProviderIds: Set<String> = emptySet(),
-    val mineProviderIds: Set<String> = emptySet(),
-    val playbackReportingProviderIds: Set<String> = emptySet(),
+    val searchProviderIds: Set<String> = DEFAULT_ALL_PROVIDER_IDS,
+    val recommendProviderIds: Set<String> = DEFAULT_ALL_PROVIDER_IDS,
+    val exploreProviderIds: Set<String> = DEFAULT_ALL_PROVIDER_IDS,
+    val mineProviderIds: Set<String> = DEFAULT_ALL_PROVIDER_IDS,
+    val playbackReportingProviderIds: Set<String> = DEFAULT_ALL_PROVIDER_IDS,
     val audioCacheLimitMb: Int = DEFAULT_AUDIO_CACHE_LIMIT_MB,
     val imageCacheLimitMb: Int = DEFAULT_IMAGE_CACHE_LIMIT_MB,
     val downloadParallelism: Int = DEFAULT_DOWNLOAD_PARALLELISM,
     val wifiAudioQualityPolicy: AudioQualityPolicy = DEFAULT_WIFI_AUDIO_QUALITY_POLICY,
     val cellularAudioQualityPolicy: AudioQualityPolicy = DEFAULT_CELLULAR_AUDIO_QUALITY_POLICY,
     val unavailablePlaybackPolicy: UnavailablePlaybackPolicy = DEFAULT_UNAVAILABLE_PLAYBACK_POLICY,
-    val smartReplacementProviderIds: Set<String> = emptySet(),
+    val smartReplacementProviderIds: Set<String> = DEFAULT_ALL_PROVIDER_IDS,
     val smartReplacementMinScore: Double = DEFAULT_SMART_REPLACEMENT_MIN_SCORE,
     val smartReplacementSelections: Map<String, SmartReplacementSelection> = emptyMap(),
     val lyricsAssociations: Map<String, String> = emptyMap(),
@@ -137,7 +137,8 @@ data class YtMusicOAuthFlowUiState(
 const val DEFAULT_AUDIO_CACHE_LIMIT_MB = 512
 const val DEFAULT_IMAGE_CACHE_LIMIT_MB = 128
 const val DEFAULT_DOWNLOAD_PARALLELISM = 2
-val DEFAULT_ENABLED_PROVIDER_IDS = setOf("netease", "audius", "jamendo", "openverse")
+val DEFAULT_ALL_PROVIDER_IDS = setOf("netease", "qqmusic", "bilibili", "ytmusic", "audius", "jamendo", "openverse")
+val DEFAULT_ENABLED_PROVIDER_IDS = DEFAULT_ALL_PROVIDER_IDS
 val DEFAULT_PROVIDER_ORDER_IDS = listOf(
     "netease",
     "qqmusic",

@@ -1,6 +1,10 @@
 package org.feeluown.mobile
 
 import kotlin.math.abs
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Composes provider-neutral catalog/search capabilities with a concrete-track resolver.
@@ -43,11 +47,19 @@ private class DefaultPlaybackProviderPort(
         } else {
             smartReplacementProviderIds
         }
-        val candidates = buildList {
-            for (providerId in providerIds) {
-                if (providerId == originalProviderId) continue
-                addAll(search.search("${original.title} ${original.artists}", providerId))
-            }
+        val query = "${original.title} ${original.artists}"
+        val candidates = coroutineScope {
+            providerIds
+                .filterNot { it == originalProviderId }
+                .map { providerId ->
+                    async {
+                        withTimeoutOrNull(6_000) {
+                            runCatching { search.search(query, providerId) }.getOrDefault(emptyList())
+                        }.orEmpty()
+                    }
+                }
+                .awaitAll()
+                .flatten()
         }
         return sortReplacementScoreTies(
             origin = original,
