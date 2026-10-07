@@ -64,9 +64,7 @@ class KotlinProviderRepository :
     override suspend fun availableProviders(): List<ProviderInfo> = ProviderComposition.providerInfos()
 
     override suspend fun updateEnabledProviders(providerIds: Set<String>) {
-        val next = providerIds
-            .intersect(providerMap.keys)
-            .ifEmpty { DEFAULT_ENABLED_PROVIDER_IDS.intersect(providerMap.keys) }
+        val next = providerIds.intersect(providerMap.keys)
         stateMutex.withLock {
             enabledProviderIds = next
             initialized = false
