@@ -7,6 +7,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -325,7 +326,7 @@ private class SearchController<Track, ProviderResults>(
                             resultOperations.tracks(provider)
                         }
 
-                        SearchScope.All -> coroutineScope {
+                        SearchScope.All -> supervisorScope {
                             val localDeferred = async { localRepository.search(keyword) }
                             val availableProviderIds = providerIdsForSearch()
                             val selectedProviderIds = state.uiState.value.selectedProviderIds
