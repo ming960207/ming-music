@@ -1,14 +1,14 @@
-name: Release Ming Music Alpha 18 Temporary
+name: Release Ming Music Alpha 19 Temporary
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v0.1.0-alpha.18'
+      - 'v0.1.0-alpha.19'
     branches:
       - main
     paths:
-      - '.release-alpha18-temp'
+      - '.release-alpha19-temp'
 
 permissions:
   contents: write
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      MING_VERSION_NAME: 0.1.0-alpha.18
-      MING_VERSION_CODE: 100018
+      MING_VERSION_NAME: 0.1.0-alpha.19
+      MING_VERSION_CODE: 100019
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,17 +44,17 @@ jobs:
         run: |
           set -euo pipefail
           APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          cp "$APK" MingMusic-0.1.0-alpha.18.apk
-          sha256sum MingMusic-0.1.0-alpha.18.apk > MingMusic-0.1.0-alpha.18.apk.sha256
+          cp "$APK" MingMusic-0.1.0-alpha.19.apk
+          sha256sum MingMusic-0.1.0-alpha.19.apk > MingMusic-0.1.0-alpha.19.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.18" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.19" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-0.1.0-alpha.18.apk \
+            MingMusic-0.1.0-alpha.19.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.18/MingMusic-0.1.0-alpha.18.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.19/MingMusic-0.1.0-alpha.19.apk"
 
       - name: Publish GitHub prerelease
         env:
@@ -62,15 +62,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v0.1.0-alpha.18 >/dev/null 2>&1; then
-            echo "Release v0.1.0-alpha.18 already exists; refusing to overwrite it."
+          if gh release view v0.1.0-alpha.19 >/dev/null 2>&1; then
+            echo "Release v0.1.0-alpha.19 already exists; refusing to overwrite it."
             exit 1
           fi
-          gh release create v0.1.0-alpha.18 \
-            MingMusic-0.1.0-alpha.18.apk \
-            MingMusic-0.1.0-alpha.18.apk.sha256 \
+          gh release create v0.1.0-alpha.19 \
+            MingMusic-0.1.0-alpha.19.apk \
+            MingMusic-0.1.0-alpha.19.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Ming Music 0.1.0 Alpha 18 (Temporary)" \
-            --notes "临时测试版：修复关闭网易云后无法搜索的问题。现在允许普通音源全部关闭，不再自动回填网易云；Audius、Jamendo、Openverse 保持独立参与全局搜索，并修复开放源搜索识别状态。此版本继续使用 CI debug 临时签名，仅用于功能测试。"
+            --title "Ming Music 0.1.0 Alpha 19 (Temporary)" \
+            --notes "临时测试版：搜索系统默认全音源并发搜索，新增搜索源筛选按钮与多选；Audius、Jamendo、Openverse 正式显示在搜索筛选中，关闭网易云后仍可使用开放源搜索。此版本继续使用 CI debug 临时签名，仅用于功能测试。"
