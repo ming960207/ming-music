@@ -35,6 +35,7 @@ sealed interface SearchAction {
     data class QueryChanged(val value: String) : SearchAction
     data class ScopeChanged(val value: SearchScope) : SearchAction
     data class ProviderChanged(val providerId: String) : SearchAction
+    data class ProviderFilterChanged(val providerIds: Set<String>) : SearchAction
     data class ProviderTabChanged(val value: ProviderSearchTab) : SearchAction
     data object Submit : SearchAction
 }
@@ -44,6 +45,7 @@ data class SearchFeatureState<Track, ProviderResults>(
     val query: String = "",
     val searchScope: SearchScope = SearchScope.All,
     val selectedSearchProviderId: String? = null,
+    val selectedProviderIds: Set<String> = emptySet(),
     val searchResults: List<Track> = emptyList(),
     val providerSearchTab: ProviderSearchTab = ProviderSearchTab.Comprehensive,
     val isLoading: Boolean = false,
@@ -153,6 +155,7 @@ private class SearchController<Track, ProviderResults>(
             is SearchAction.QueryChanged -> onQueryChange(action.value)
             is SearchAction.ScopeChanged -> onScopeChange(action.value)
             is SearchAction.ProviderChanged -> onProviderChange(action.providerId)
+            is SearchAction.ProviderFilterChanged -> onProviderFilterChange(action.providerIds)
             is SearchAction.ProviderTabChanged -> onProviderTabChange(action.value)
             SearchAction.Submit -> search()
         }
@@ -227,6 +230,12 @@ private class SearchController<Track, ProviderResults>(
                 selectedSearchProviderId = providerId,
             )
         }
+        notifyPreferencesChanged()
+        if (state.uiState.value.query.isNotBlank()) search()
+    }
+
+    private fun onProviderFilterChange(providerIds: Set<String>) {
+        state.update { it.copy(searchScope = SearchScope.All, selectedSearchProviderId = null, selectedProviderIds = providerIds) }
         notifyPreferencesChanged()
         if (state.uiState.value.query.isNotBlank()) search()
     }
@@ -316,7 +325,10 @@ private class SearchController<Track, ProviderResults>(
 
                         SearchScope.All -> coroutineScope {
                             val localDeferred = async { localRepository.search(keyword) }
-                            val providerDeferreds = providerIdsForSearch().map { providerId ->
+                            val availableProviderIds = providerIdsForSearch()
+                            val selectedProviderIds = state.uiState.value.selectedProviderIds
+                            val providerIds = if (selectedProviderIds.isEmpty()) availableProviderIds else availableProviderIds.filter { it in selectedProviderIds }
+                            val providerDeferreds = providerIds.map { providerId ->
                                 async {
                                     runCatching { providerRepository.searchAll(keyword, providerId) }
                                         .getOrElse { throwable ->
