@@ -80,7 +80,9 @@ private object AppSearchResultOperations : SearchResultOperations<MusicTrack, Pr
         albums = roundRobin(results.map { it.albums }).distinctBy { it.id },
         videos = roundRobin(results.map { it.videos }).distinctBy { it.id },
         bestMatches = results.flatMap { it.bestMatches }.distinctBy(::searchHitKey),
-        errorMessage = results.firstNotNullOfOrNull { it.errorMessage },
+        errorMessage = results
+            .takeIf { merged -> merged.all { totalCount(it) == 0 } }
+            ?.firstNotNullOfOrNull { it.errorMessage },
     )
 
     override fun totalCount(results: ProviderSearchResults): Int =
