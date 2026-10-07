@@ -7,7 +7,7 @@ package org.feeluown.mobile
  * finding a result in QQ Music, NetEase, etc. must not suppress Audius/Jamendo results.
  * Explicit single-provider search is still controlled by the selected provider.
  */
-private val ALWAYS_ON_GLOBAL_SEARCH_PROVIDER_IDS = listOf("audius", "jamendo")
+private val ALWAYS_ON_GLOBAL_SEARCH_PROVIDER_IDS = listOf("audius", "jamendo", "openverse")
 
 /**
  * Resolves the provider subset/order used by global search directly from persisted app settings.
