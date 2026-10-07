@@ -128,6 +128,7 @@ private fun MineOwnerChips(home: HomeFeatureController, includeSecondary: Boolea
             MineChip(state.mineSection == MineSection.Playlists, { home.setMineSection(MineSection.Playlists) }, "歌单")
             MineChip(state.mineSection == MineSection.Artists, { home.setMineSection(MineSection.Artists) }, "歌手")
             MineChip(state.mineSection == MineSection.Albums, { home.setMineSection(MineSection.Albums) }, "专辑")
+            MineFavoritesChip(graph = LocalHomeFeatureUiGraph.current)
             MineChip(state.mineSection == MineSection.LocalMusic, { home.setMineSection(MineSection.LocalMusic) }, "本地")
             if (includeSecondary) {
                 Spacer(Modifier.width(FuoSpacing.md))
@@ -151,6 +152,20 @@ private fun MineOwnerChips(home: HomeFeatureController, includeSecondary: Boolea
             }
         }
     }
+}
+
+@Composable
+private fun MineFavoritesChip(graph: HomeFeatureUiGraph) {
+    val local by graph.localPlaylist.uiState.collectAsStateWithLifecycle()
+    val favorites = local.playlists.firstOrNull { it.title.trim() == "我的喜欢" }
+    MineChip(
+        selected = local.selectedPlaylist?.id == favorites?.id,
+        onClick = {
+            if (favorites != null) graph.localPlaylist.open(favorites)
+            else graph.localPlaylist.create("我的喜欢")
+        },
+        label = favorites?.let { favorite -> "我的喜欢 ${favorite.tracks.size}" } ?: "我的喜欢",
+    )
 }
 
 @Composable
