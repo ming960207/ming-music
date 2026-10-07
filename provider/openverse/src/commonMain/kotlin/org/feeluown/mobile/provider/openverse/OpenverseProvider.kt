@@ -57,7 +57,7 @@ class OpenverseProvider(http: ProviderHttpClient, credentials: ProviderCredentia
   if(title.isBlank()) return null
   if(selectMedia(item)==null) return null
   return track(id,title,item.stringOrNull("creator").orEmpty(),item.obj("audio_set")?.stringOrNull("title")?:"",
-   item.stringOrNull("thumbnail"),item.long("duration"),providerUrl=item.stringOrNull("foreign_landing_url"))
+   item.stringOrNull("thumbnail"),item.long("duration")?.times(1000),providerUrl=item.stringOrNull("foreign_landing_url"))
  }
 
  private fun selectMedia(item: JsonObject): Pair<String,String>? {
