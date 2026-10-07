@@ -270,6 +270,10 @@ class FuoPlaybackService : MediaSessionService() {
                     ?: repository.list().firstOrNull { it.id == updated.id }?.tracks?.any { it.uri == uri }
                     ?: false
                 withContext(Dispatchers.Main.immediate) {
+                    // The playback service writes through the repository directly, while the
+                    // local-playlist UI owns a cached StateFlow. Refresh that owner after every
+                    // favorite mutation so "我的喜欢" immediately reflects the persisted file.
+                    (application as? FuoEvolveApplication)?.appUiGraph?.localPlaylist?.refresh()
                     mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable, currentTrackFavorited))
                 }
             } else {
