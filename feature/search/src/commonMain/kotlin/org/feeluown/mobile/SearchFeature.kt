@@ -331,7 +331,7 @@ private class SearchController<Track, ProviderResults>(
                             val providerIds = if (selectedProviderIds.isEmpty()) availableProviderIds else availableProviderIds.filter { it in selectedProviderIds }
                             val providerDeferreds = providerIds.map { providerId ->
                                 async {
-                                    withTimeoutOrNull(6_000) {
+                                    withTimeoutOrNull(3_000) {
                                         runCatching { providerRepository.searchAll(keyword, providerId) }
                                             .getOrElse { throwable ->
                                                 resultOperations.empty(failureMessage(throwable, providerId))
