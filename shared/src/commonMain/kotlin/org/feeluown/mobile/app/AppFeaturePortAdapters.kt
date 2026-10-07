@@ -22,15 +22,7 @@ class DefaultSearchAppPort(
     private val onSearchClosed: () -> Unit = {},
 ) : SearchAppPort {
     override val providers: List<ProviderInfo>
-        get() {
-            val sessionProviders = providerSessions().providers
-            val sessionIds = sessionProviders.mapTo(mutableSetOf()) { it.providerId }
-            val openCatalogs = ProviderComposition.providerInfos().filter { provider ->
-                provider.providerId in setOf("audius", "jamendo", "openverse") &&
-                    provider.providerId !in sessionIds
-            }
-            return sessionProviders + openCatalogs
-        }
+        get() = ProviderComposition.providerInfos()
 
     override val downloadStates: Map<String, DownloadState>
         get() = downloads.downloadStates
