@@ -11,6 +11,7 @@ fun SearchUiState(
     query: String = "",
     searchScope: SearchScope = SearchScope.All,
     selectedSearchProviderId: String? = null,
+    selectedProviderIds: Set<String> = emptySet(),
     searchResults: List<MusicTrack> = emptyList(),
     providerSearchResults: ProviderSearchResults = ProviderSearchResults(),
     providerSearchTab: ProviderSearchTab = ProviderSearchTab.Comprehensive,
