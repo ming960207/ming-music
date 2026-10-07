@@ -317,7 +317,12 @@ private class SearchController<Track, ProviderResults>(
                         SearchScope.All -> coroutineScope {
                             val localDeferred = async { localRepository.search(keyword) }
                             val providerDeferreds = providerIdsForSearch().map { providerId ->
-                                async { providerRepository.searchAll(keyword, providerId) }
+                                async {
+                                    runCatching { providerRepository.searchAll(keyword, providerId) }
+                                        .getOrElse { throwable ->
+                                            resultOperations.empty(failureMessage(throwable, providerId))
+                                        }
+                                }
                             }
                             val local = localDeferred.await()
                             val provider = resultOperations.merge(providerDeferreds.awaitAll())
