@@ -50,6 +50,7 @@ kotlin {
             api(project(":provider:runtime"))
             implementation(project(":provider:audius"))
             implementation(project(":provider:jamendo"))
+            implementation(project(":provider:soundcloud"))
             implementation(project(":provider:bilibili"))
             implementation(project(":provider:netease"))
             implementation(project(":provider:qqmusic"))
