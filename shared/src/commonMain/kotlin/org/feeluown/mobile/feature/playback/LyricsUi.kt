@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +61,7 @@ private const val LYRIC_ALIGNMENT_SLIDER_STEPS = 23
 @Composable
 fun LyricsPanel(state: PlaybackState, fontSize: LyricFontSize, modifier: Modifier) {
     val lyricsPort = LocalPlaybackLyricsPort.current
+    val floatingLyrics = rememberFloatingLyricsSettingsAction()
     val associationState by lyricsPort.associationState.collectAsStateWithLifecycle()
     val lines = remember(state.lyrics) { parseLyrics(state.lyrics) }
     val listState = rememberLazyListState()
@@ -136,7 +138,22 @@ fun LyricsPanel(state: PlaybackState, fontSize: LyricFontSize, modifier: Modifie
         color = MaterialTheme.colorScheme.surfaceContainer,
         shape = MaterialTheme.shapes.medium,
     ) {
-        if (lines.isEmpty()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (floatingLyrics?.available == true) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = FuoSpacing.md, vertical = FuoSpacing.xs),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { floatingLyrics.setEnabled(!floatingLyrics.enabled) }) {
+                        Icon(Icons.Filled.PictureInPictureAlt, contentDescription = null)
+                        Text(if (floatingLyrics.enabled) "关闭悬浮歌词" else "悬浮歌词")
+                    }
+                }
+            }
+            if (lines.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -267,6 +284,7 @@ fun LyricsPanel(state: PlaybackState, fontSize: LyricFontSize, modifier: Modifie
                     }
                 }
             }
+        }
         }
     }
 
