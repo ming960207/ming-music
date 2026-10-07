@@ -6,6 +6,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -329,18 +330,46 @@ private class SearchController<Track, ProviderResults>(
                             val availableProviderIds = providerIdsForSearch()
                             val selectedProviderIds = state.uiState.value.selectedProviderIds
                             val providerIds = if (selectedProviderIds.isEmpty()) availableProviderIds else availableProviderIds.filter { it in selectedProviderIds }
+                            val providerChannel = Channel<ProviderResults>(Channel.UNLIMITED)
                             val providerDeferreds = providerIds.map { providerId ->
                                 async {
-                                    withTimeoutOrNull(3_000) {
+                                    val result = withTimeoutOrNull(3_000) {
                                         runCatching { providerRepository.searchAll(keyword, providerId) }
                                             .getOrElse { throwable ->
                                                 resultOperations.empty(failureMessage(throwable, providerId))
                                             }
                                     } ?: resultOperations.empty("音源响应超时")
+                                    providerChannel.send(result)
+                                    result
                                 }
                             }
                             val local = localDeferred.await()
-                            val provider = resultOperations.merge(providerDeferreds.awaitAll())
+                            if (generation == searchGeneration && local.isNotEmpty()) {
+                                state.update {
+                                    it.copy(
+                                        searchResults = mergeResults(local, resultOperations.tracks(it.providerSearchResults)),
+                                        message = "已显示本地结果，正在补充在线音源…",
+                                    )
+                                }
+                            }
+                            val completedProviders = mutableListOf<ProviderResults>()
+                            repeat(providerDeferreds.size) {
+                                val completed = providerChannel.receive()
+                                completedProviders += completed
+                                val partialProvider = resultOperations.merge(completedProviders)
+                                if (generation == searchGeneration && resultOperations.totalCount(partialProvider) > 0) {
+                                    state.update {
+                                        it.copy(
+                                            providerSearchResults = partialProvider,
+                                            searchResults = mergeResults(local, resultOperations.tracks(partialProvider)),
+                                            message = "正在补充其他音源…",
+                                        )
+                                    }
+                                }
+                            }
+                            providerChannel.close()
+                            providerDeferreds.awaitAll()
+                            val provider = resultOperations.merge(completedProviders)
                             if (generation == searchGeneration) {
                                 state.update { it.copy(providerSearchResults = provider) }
                             }
