@@ -1,6 +1,7 @@
 package org.feeluown.mobile
 
 import org.feeluown.mobile.provider.audius.AudiusProviderFactory
+import org.feeluown.mobile.provider.openverse.OpenverseProviderFactory
 import org.feeluown.mobile.provider.jamendo.JamendoProviderFactory
 import org.feeluown.mobile.provider.bilibili.BilibiliProviderFactory
 import org.feeluown.mobile.provider.core.KotlinMusicProvider
@@ -16,6 +17,7 @@ import org.feeluown.mobile.provider.ytmusic.YtMusicProviderFactory
 internal object ProviderComposition {
     private val factories: List<KotlinProviderFactory> = listOf(
         AudiusProviderFactory,
+        OpenverseProviderFactory,
         JamendoProviderFactory,
         NeteaseProviderFactory,
         QQMusicProviderFactory,
