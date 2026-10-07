@@ -10,6 +10,7 @@ import org.feeluown.mobile.provider.core.ProviderRuntimeDependencies
 import org.feeluown.mobile.provider.core.network.ProviderHttpClient
 import org.feeluown.mobile.provider.netease.NeteaseProviderFactory
 import org.feeluown.mobile.provider.qqmusic.QQMusicProviderFactory
+import org.feeluown.mobile.provider.soundcloud.SoundCloudProviderFactory
 import org.feeluown.mobile.provider.ytmusic.YtMusicProviderFactory
 
 /** Single compile-time composition point that knows concrete provider plugins. */
@@ -17,6 +18,7 @@ internal object ProviderComposition {
     private val factories: List<KotlinProviderFactory> = listOf(
         AudiusProviderFactory,
         JamendoProviderFactory,
+        SoundCloudProviderFactory,
         NeteaseProviderFactory,
         QQMusicProviderFactory,
         BilibiliProviderFactory,
