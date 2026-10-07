@@ -18,14 +18,14 @@ private val ALWAYS_ON_GLOBAL_SEARCH_PROVIDER_IDS = listOf("audius", "jamendo", "
  * consulted after conventional providers return no results.
  */
 fun AppSettings.searchProviderIdsForFeature(): List<String> {
-    val enabledIds = enabledProviderIds
-    val selectedIds = searchProviderIds.ifEmpty { enabledIds }
-    val normalProviderIds = (providerOrderIds + DEFAULT_PROVIDER_ORDER_IDS + enabledIds)
-        .distinct()
-        .filter { providerId -> providerId in enabledIds && providerId in selectedIds }
-
-    return (normalProviderIds + ALWAYS_ON_GLOBAL_SEARCH_PROVIDER_IDS).distinct()
+    val registeredIds = ProviderComposition.providerInfos().map { it.providerId }
+    val selectedIds = searchProviderIds
+    return if (selectedIds.isEmpty()) {
+        registeredIds
+    } else {
+        registeredIds.filter { it in selectedIds }
+    }
 }
 
 fun AppSettings.hasSearchProvider(providerId: String): Boolean =
-    providerId in enabledProviderIds || providerId in ALWAYS_ON_GLOBAL_SEARCH_PROVIDER_IDS
+    ProviderComposition.providerInfos().any { it.providerId == providerId }
