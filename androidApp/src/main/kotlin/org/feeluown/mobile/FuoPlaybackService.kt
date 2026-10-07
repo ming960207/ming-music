@@ -66,6 +66,7 @@ class FuoPlaybackService : MediaSessionService() {
     private var stopAfterCurrentTrack = false
     private var holdAtCurrentEnd = false
     private var colorOsTranslationAvailable = false
+    @Volatile private var currentTrackFavorited = false
     // Playback resolution completes asynchronously. A disconnect (or pause command) must stop
     // its eventual play() call, not just pause the currently prepared ExoPlayer instance.
     private var pauseRequestedDuringLoad = false
@@ -112,6 +113,7 @@ class FuoPlaybackService : MediaSessionService() {
                             holdAtCurrentEnd = false
                         }
                         activePlayback = prepared
+                        refreshFavoriteState(prepared)
                         activePlaybackHasReachedReady = player.playbackState == Player.STATE_READY
                         updateColorOsTranslationAvailability(
                             toPlatformTimedLyrics(prepared.payload.lyrics)?.translationLyric != null,
@@ -255,8 +257,43 @@ class FuoPlaybackService : MediaSessionService() {
             if (favorites == null) favorites = repository.create(FAVORITES_PLAYLIST_TITLE).playlist
             favorites ?: return@launch
             val updated = repository.list().firstOrNull { it.id == favorites.id } ?: favorites
-            if (updated.tracks.any { it.uri == uri }) repository.removeTrack(updated, uri)
-            else repository.addTrack(updated, favoriteTrack)
+            val result = if (updated.tracks.any { it.uri == uri }) {
+                repository.removeTrack(updated, uri)
+            } else {
+                repository.addTrack(updated, favoriteTrack)
+            }
+            if (result.success) {
+                currentTrackFavorited = result.playlist?.tracks?.any { it.uri == uri }
+                    ?: repository.list().firstOrNull { it.id == updated.id }?.tracks?.any { it.uri == uri }
+                    ?: false
+                withContext(Dispatchers.Main.immediate) {
+                    mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable))
+                }
+            } else {
+                AppLogger.w(TAG, "favorite mutation failed: ${result.message}")
+            }
+        }
+    }
+
+    private fun refreshFavoriteState(prepared: PreparedPlayback) {
+        val track = prepared.track
+        val providerId = (track.originalSource.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+            ?: track.providerId ?: track.source).orEmpty().trim()
+        val identifier = (track.originalId.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+            ?: track.id).trim()
+        if (providerId.isBlank() || identifier.isBlank()) {
+            currentTrackFavorited = false
+            return
+        }
+        val uri = LocalPlaylistFileCodec.normalizeSongUri(providerId, identifier)
+        val repository = (application as? FuoEvolveApplication)?.localPlaylistRepository ?: return
+        serviceScope.launch {
+            currentTrackFavorited = repository.list()
+                .firstOrNull { it.title == FAVORITES_PLAYLIST_TITLE }
+                ?.tracks?.any { it.uri == uri } == true
+            withContext(Dispatchers.Main.immediate) {
+                mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable))
+            }
         }
     }
 
@@ -1044,7 +1081,7 @@ class FuoPlaybackService : MediaSessionService() {
         @OptIn(UnstableApi::class)
         private fun mediaButtonPreferences(includeTranslation: Boolean): List<CommandButton> = buildList {
             add(
-                CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+                CommandButton.Builder(if (currentTrackFavorited) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
                     .setSessionCommand(TOGGLE_FAVORITE_COMMAND)
                     .setDisplayName("喜欢")
                     .build(),
