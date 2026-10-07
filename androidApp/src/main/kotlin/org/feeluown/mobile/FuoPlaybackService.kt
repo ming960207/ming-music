@@ -191,6 +191,7 @@ class FuoPlaybackService : MediaSessionService() {
                     val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
                         .buildUpon()
                         .add(COLOR_OS_TRANSLATION_COMMAND)
+                        .add(TOGGLE_FAVORITE_COMMAND)
                         .build()
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                         .setAvailableSessionCommands(sessionCommands)
@@ -204,6 +205,10 @@ class FuoPlaybackService : MediaSessionService() {
                     customCommand: SessionCommand,
                     args: Bundle,
                 ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction == TOGGLE_FAVORITE_ACTION) {
+                        toggleCurrentFavorite()
+                        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    }
                     if (customCommand.customAction == COLOR_OS_TOGGLE_TRANSLATION_ACTION) {
                         // Bridge/SystemUI owns the visual translation toggle. The player only needs
                         // to keep this public action present in the platform PlaybackState.
@@ -222,6 +227,37 @@ class FuoPlaybackService : MediaSessionService() {
             })
             .setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable))
             .build()
+    }
+
+    private fun toggleCurrentFavorite() {
+        val prepared = activePlayback ?: return
+        val track = prepared.track
+        val originalProviderId = track.originalSource.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+            ?: track.providerId
+            ?: track.source
+        val originalId = track.originalId.takeIf { track.isSmartReplacement && !it.isNullOrBlank() } ?: track.id
+        val providerId = originalProviderId.orEmpty().trim()
+        val identifier = originalId.trim()
+        if (providerId.isBlank() || identifier.isBlank()) return
+        val uri = LocalPlaylistFileCodec.normalizeSongUri(providerId, identifier)
+        val favoriteTrack = LocalPlaylistTrack(
+            uri = uri,
+            providerId = providerId,
+            identifier = identifier,
+            title = track.originalTitle.takeIf { track.isSmartReplacement && !it.isNullOrBlank() } ?: track.title,
+            artists = track.originalArtists.takeIf { track.isSmartReplacement && !it.isNullOrBlank() } ?: track.artists,
+            album = track.originalAlbum.takeIf { track.isSmartReplacement && !it.isNullOrBlank() } ?: track.album,
+            durationMs = track.durationMs,
+        )
+        val repository = (application as? FuoEvolveApplication)?.localPlaylistRepository ?: return
+        serviceScope.launch {
+            var favorites = repository.list().firstOrNull { it.title == FAVORITES_PLAYLIST_TITLE }
+            if (favorites == null) favorites = repository.create(FAVORITES_PLAYLIST_TITLE).playlist
+            favorites ?: return@launch
+            val updated = repository.list().firstOrNull { it.id == favorites.id } ?: favorites
+            if (updated.tracks.any { it.uri == uri }) repository.removeTrack(updated, uri)
+            else repository.addTrack(updated, favoriteTrack)
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -926,6 +962,9 @@ class FuoPlaybackService : MediaSessionService() {
         private const val EXTRA_COLOROS_TRANSLATION_AVAILABLE = "coloros_translation_available"
         private const val PLAYBACK_RESOLVE_TIMEOUT_MS = 30_000L
         private const val TAG = "FuoPlaybackService"
+        private const val TOGGLE_FAVORITE_ACTION = "org.feeluown.mobile.action.TOGGLE_FAVORITE"
+        private const val FAVORITES_PLAYLIST_TITLE = "我的喜欢"
+        private val TOGGLE_FAVORITE_COMMAND = SessionCommand(TOGGLE_FAVORITE_ACTION, Bundle.EMPTY)
         private val COLOR_OS_TRANSLATION_COMMAND = SessionCommand(
             COLOR_OS_TOGGLE_TRANSLATION_ACTION,
             Bundle.EMPTY,
@@ -1004,6 +1043,12 @@ class FuoPlaybackService : MediaSessionService() {
 
         @OptIn(UnstableApi::class)
         private fun mediaButtonPreferences(includeTranslation: Boolean): List<CommandButton> = buildList {
+            add(
+                CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+                    .setSessionCommand(TOGGLE_FAVORITE_COMMAND)
+                    .setDisplayName("喜欢")
+                    .build(),
+            )
             if (includeTranslation) {
                 add(
                     CommandButton.Builder(CommandButton.ICON_CLOSED_CAPTIONS)
