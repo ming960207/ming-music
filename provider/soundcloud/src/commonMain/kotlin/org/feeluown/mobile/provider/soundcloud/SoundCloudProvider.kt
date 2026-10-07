@@ -36,7 +36,7 @@ class SoundCloudProvider(
         val token = accessToken() ?: return ProviderSearchResults(
             errorMessage = "SoundCloud 尚未配置 OAuth 凭据",
         )
-        val url = queryUrl("$BASE/tracks", mapOf("q" to keyword, "limit" to "20"))
+        val url = queryUrl("$BASE/tracks", mapOf("q" to keyword, "access" to "playable", "limit" to "20", "linked_partitioning" to "true"))
         val root = providerJson.parseToJsonElement(
             http.getText(
                 ID,
