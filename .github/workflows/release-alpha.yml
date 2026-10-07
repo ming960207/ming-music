@@ -1,14 +1,14 @@
-name: Release Ming Music Alpha 24 Temporary
+name: Release Ming Music Alpha 25 Temporary
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v0.1.0-alpha.24'
+      - 'v0.1.0-alpha.25'
     branches:
       - main
     paths:
-      - '.release-alpha24-temp'
+      - '.release-alpha25-temp'
 
 permissions:
   contents: write
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      MING_VERSION_NAME: 0.1.0-alpha.24
-      MING_VERSION_CODE: 100024
+      MING_VERSION_NAME: 0.1.0-alpha.25
+      MING_VERSION_CODE: 100025
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,17 +44,17 @@ jobs:
         run: |
           set -euo pipefail
           APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          cp "$APK" MingMusic-0.1.0-alpha.24.apk
-          sha256sum MingMusic-0.1.0-alpha.24.apk > MingMusic-0.1.0-alpha.24.apk.sha256
+          cp "$APK" MingMusic-0.1.0-alpha.25.apk
+          sha256sum MingMusic-0.1.0-alpha.25.apk > MingMusic-0.1.0-alpha.25.apk.sha256
           chmod +x scripts/write-update-manifest.sh
           COMMIT_SHA="$GITHUB_SHA" \
           WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.24" \
+          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.25" \
           scripts/write-update-manifest.sh \
             canary \
-            MingMusic-0.1.0-alpha.24.apk \
+            MingMusic-0.1.0-alpha.25.apk \
             ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.24/MingMusic-0.1.0-alpha.24.apk"
+            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.25/MingMusic-0.1.0-alpha.25.apk"
 
       - name: Publish GitHub prerelease
         env:
@@ -62,15 +62,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v0.1.0-alpha.24 >/dev/null 2>&1; then
-            echo "Release v0.1.0-alpha.24 already exists; refusing to overwrite it."
+          if gh release view v0.1.0-alpha.25 >/dev/null 2>&1; then
+            echo "Release v0.1.0-alpha.25 already exists; refusing to overwrite it."
             exit 1
           fi
-          gh release create v0.1.0-alpha.24 \
-            MingMusic-0.1.0-alpha.24.apk \
-            MingMusic-0.1.0-alpha.24.apk.sha256 \
+          gh release create v0.1.0-alpha.25 \
+            MingMusic-0.1.0-alpha.25.apk \
+            MingMusic-0.1.0-alpha.25.apk.sha256 \
             ming-music-update.json \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Ming Music 0.1.0 Alpha 24 (Temporary)" \
-            --notes "Alpha 24：修复「我的喜欢」收藏闭环：标准化 Provider/歌曲 URI，收藏与取消收藏真实持久化，并在播放服务修改后立即刷新本地歌单 UI。继续使用 CI debug 临时签名，仅用于功能测试。"
+            --title "Ming Music 0.1.0 Alpha 25 (Temporary)" \
+            --notes "Alpha 25：完善「我的喜欢」：收藏与取消收藏真实持久化、即时刷新，并在「我的」页面增加独立「我的喜欢」入口与收藏数量，直接打开真实本地收藏歌单。继续使用 CI debug 临时签名，仅用于功能测试。"
