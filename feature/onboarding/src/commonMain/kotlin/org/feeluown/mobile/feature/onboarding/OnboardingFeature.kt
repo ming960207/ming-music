@@ -96,8 +96,13 @@ private class DefaultOnboardingFeatureOwner<PlaybackPolicy>(
         initialized = true
         val availableIds = availableProviderIds.toSet()
         val current = preferences.providerPreferences.value
-        val selected = current.enabledProviderIds.intersect(availableIds)
-            .ifEmpty { setOf(availableProviderIds.first()) }
+        // First-run onboarding is zero-config: all discovered providers are enabled by default.
+        // Existing explicit selections are preserved when onboarding is revisited.
+        val selected = if (current.enabledProviderIds.isEmpty() || current.enabledProviderIds.size <= 1) {
+            availableIds
+        } else {
+            current.enabledProviderIds.intersect(availableIds).ifEmpty { availableIds }
+        }
         val configuredContent = listOf(
             current.searchProviderIds,
             current.recommendProviderIds,
