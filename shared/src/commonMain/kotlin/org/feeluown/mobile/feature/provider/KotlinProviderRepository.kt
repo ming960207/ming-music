@@ -121,7 +121,7 @@ class KotlinProviderRepository :
 
         // Open-catalog safety net. These providers expose separately published,
         // publicly streamable catalog entries; no VIP/DRM/access-control bypass.
-        for (fallbackId in listOf("audius", "jamendo", "soundcloud")) {
+        for (fallbackId in listOf("audius", "jamendo")) {
             if (providerId == fallbackId || fallbackId !in enabledProviderIds) continue
             val fallback = providerMap[fallbackId]?.value ?: continue
             val query = listOf(track.title, track.artists).filter { it.isNotBlank() }.joinToString(" ")
