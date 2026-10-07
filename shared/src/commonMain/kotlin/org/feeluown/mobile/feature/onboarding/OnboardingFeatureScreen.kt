@@ -59,7 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.feeluown.mobile.feature.onboarding.OnboardingFeedbackKind
 
-private const val ONBOARDING_PAGE_COUNT = 3
+private const val ONBOARDING_PAGE_COUNT = 1
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,11 +89,9 @@ fun OnboardingFeatureScreen(
         availableProviders.filter { it.providerId in onboardingState.selectedProviderIds }
     }
     val pagerState = rememberPagerState(pageCount = { ONBOARDING_PAGE_COUNT })
-    val sourcePage = pagerState.currentPage == 0
-    val replacementPage = pagerState.currentPage == 1
-    val accountPage = pagerState.currentPage == 2
+    val accountPage = true
     val ytmusicOAuthFlowActive = authState.ytmusicOAuthFlow != null
-    val authBusy = accountPage && selectedProviders.any { provider ->
+    val authBusy = selectedProviders.any { provider ->
         providerAuth.isBusy(provider.providerId) &&
             !(provider.providerId == "ytmusic" && ytmusicOAuthFlowActive)
     }
@@ -101,19 +99,22 @@ fun OnboardingFeatureScreen(
     val allLoggedIn = selectedProviders.isNotEmpty() && selectedProviders.all { provider ->
         providerAuth.authStateFor(provider).isLoggedIn
     }
-    val actionEnabled = when {
-        sourcePage -> availableProviders.isNotEmpty() && onboardingState.selectedProviderIds.isNotEmpty()
-        replacementPage -> onboardingState.contentProviderIds.isNotEmpty() &&
-            (!onboardingState.smartReplacementEnabled || onboardingState.replacementProviderIds.isNotEmpty())
-        else -> true
+    var providerDefaultsApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(onboardingState.selectedProviderIds, availableProviders) {
+        if (!providerDefaultsApplied && availableProviders.isNotEmpty() &&
+            onboardingState.selectedProviderIds.isNotEmpty()
+        ) {
+            providerDefaultsApplied = true
+            onboarding.applyProviderConfiguration { }
+        }
     }
-
+    val actionEnabled = true
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("初始设置") },
                 navigationIcon = {
-                    if (!sourcePage) {
+                    if (false) {
                         IconButton(
                             enabled = !busy,
                             onClick = {
@@ -131,28 +132,14 @@ fun OnboardingFeatureScreen(
         },
         bottomBar = {
             OnboardingFeatureFooter(
-                currentPage = pagerState.currentPage,
+                currentPage = 0,
                 pageCount = ONBOARDING_PAGE_COUNT,
                 isBusy = busy,
                 actionEnabled = actionEnabled,
-                actionLabel = when {
-                    accountPage && allLoggedIn -> "开始使用"
-                    accountPage -> "稍后登录"
-                    else -> "继续"
-                },
+                actionLabel = if (allLoggedIn) "开始使用" else "稍后登录",
                 onAction = {
-                    when {
-                        sourcePage -> scope.launch { pagerState.animateScrollToPage(1) }
-                        replacementPage -> onboarding.applyProviderConfiguration { success ->
-                            if (success) scope.launch { pagerState.animateScrollToPage(2) }
-                        }
-                        else -> {
-                            if (ytmusicOAuthFlowActive) {
-                                providerAuth.cancelYtmusicTvOAuthLogin()
-                            }
-                            onboarding.complete()
-                        }
-                    }
+                    if (ytmusicOAuthFlowActive) providerAuth.cancelYtmusicTvOAuthLogin()
+                    onboarding.complete()
                 },
             )
         },
@@ -164,37 +151,18 @@ fun OnboardingFeatureScreen(
             verticalAlignment = Alignment.Top,
         ) { page ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                when (page) {
-                    0 -> OnboardingProviderSelectionPage(
-                        providers = availableProviders,
-                        state = onboardingState,
-                        catalogState = catalogState,
-                        enabled = !busy,
-                        onProviderSelected = onboarding::setProviderSelected,
-                        onRetry = providerCatalog::refresh,
-                    )
-                    1 -> OnboardingReplacementPage(
-                        providers = selectedProviders,
-                        state = onboardingState,
-                        enabled = !busy,
-                        onContentProviderEnabled = onboarding::setContentProviderEnabled,
-                        onReplacementProviderEnabled = onboarding::setReplacementProviderEnabled,
-                        onSmartReplacementEnabled = onboarding::setSmartReplacementEnabled,
-                        onSmartReplacementMinScore = onboarding::setSmartReplacementMinScore,
-                    )
-                    else -> OnboardingAccountsPage(
-                        providers = selectedProviders,
-                        state = onboardingState,
-                        enabled = !busy,
-                        authController = providerAuth,
-                        authState = authState,
-                        onOpenProviderWebLogin = onOpenProviderWebLogin,
-                        onLogoutProvider = onLogoutProvider,
-                        onImportYtmusicHeaderFile = onImportYtmusicHeaderFile,
-                        onImportYtmusicOAuthFile = onImportYtmusicOAuthFile,
-                        onStartYtmusicOAuth = onStartYtmusicOAuth,
-                    )
-                }
+                OnboardingAccountsPage(
+                    providers = selectedProviders,
+                    state = onboardingState,
+                    enabled = !busy,
+                    authController = providerAuth,
+                    authState = authState,
+                    onOpenProviderWebLogin = onOpenProviderWebLogin,
+                    onLogoutProvider = onLogoutProvider,
+                    onImportYtmusicHeaderFile = onImportYtmusicHeaderFile,
+                    onImportYtmusicOAuthFile = onImportYtmusicOAuthFile,
+                    onStartYtmusicOAuth = onStartYtmusicOAuth,
+                )
             }
         }
     }
