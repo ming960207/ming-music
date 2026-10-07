@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -84,6 +85,7 @@ internal fun SearchFeatureScreen(
         mutableStateOf(searchHistoryStore.load().take(MAX_SEARCH_HISTORY_ITEMS))
     }
     var pendingHistoryDeletion by remember { mutableStateOf<String?>(null) }
+    var showProviderFilter by remember { mutableStateOf(false) }
 
     fun persistSearchHistory(updated: List<String>) {
         searchHistory = updated
@@ -165,9 +167,12 @@ internal fun SearchFeatureScreen(
                         ) {
                             SearchScopeChip(actions, uiState, SearchScope.All, "全部")
                             SearchScopeChip(actions, uiState, SearchScope.Local, "本地")
-                            providers.forEach { provider ->
-                                SearchProviderChip(actions, uiState, provider)
-                            }
+                            FilterChip(
+                                selected = uiState.selectedProviderIds.isNotEmpty(),
+                                onClick = { showProviderFilter = true },
+                                leadingIcon = { Icon(Icons.Filled.FilterList, contentDescription = null) },
+                                label = { Text(if (uiState.selectedProviderIds.isEmpty()) "筛选 · 全部音源" else "筛选 · ${uiState.selectedProviderIds.size} 个音源") },
+                            )
                         }
                         SearchHistoryStrip(
                             history = searchHistory,
@@ -260,9 +265,12 @@ internal fun SearchFeatureScreen(
                         ) {
                             SearchScopeChip(actions, uiState, SearchScope.All, "全部")
                             SearchScopeChip(actions, uiState, SearchScope.Local, "本地")
-                            providers.forEach { provider ->
-                                SearchProviderChip(actions, uiState, provider)
-                            }
+                            FilterChip(
+                                selected = uiState.selectedProviderIds.isNotEmpty(),
+                                onClick = { showProviderFilter = true },
+                                leadingIcon = { Icon(Icons.Filled.FilterList, contentDescription = null) },
+                                label = { Text(if (uiState.selectedProviderIds.isEmpty()) "筛选 · 全部音源" else "筛选 · ${uiState.selectedProviderIds.size} 个音源") },
+                            )
                         }
                     }
                 }
@@ -292,6 +300,48 @@ internal fun SearchFeatureScreen(
                 }
             }
         }
+    }
+
+    if (showProviderFilter) {
+        var draftSelection by remember(uiState.selectedProviderIds, showProviderFilter) {
+            mutableStateOf(uiState.selectedProviderIds.ifEmpty { providers.mapTo(linkedSetOf()) { it.providerId } })
+        }
+        AlertDialog(
+            onDismissRequest = { showProviderFilter = false },
+            title = { Text("选择搜索音源") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("默认全选，可按需筛选")
+                    providers.forEach { provider ->
+                        FilterChip(
+                            selected = provider.providerId in draftSelection,
+                            onClick = {
+                                draftSelection = if (provider.providerId in draftSelection) {
+                                    draftSelection - provider.providerId
+                                } else {
+                                    draftSelection + provider.providerId
+                                }
+                            },
+                            label = { Text(provider.providerName) },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val allIds = providers.mapTo(linkedSetOf()) { it.providerId }
+                    val normalized = draftSelection.takeIf { it.isNotEmpty() && it != allIds } ?: emptySet()
+                    actions.dispatch(SearchAction.ProviderFilterChanged(normalized))
+                    showProviderFilter = false
+                }) { Text("应用") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    actions.dispatch(SearchAction.ProviderFilterChanged(emptySet()))
+                    showProviderFilter = false
+                }) { Text("全选") }
+            },
+        )
     }
 
     pendingHistoryDeletion?.let { keyword ->
