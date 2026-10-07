@@ -43,6 +43,7 @@ internal class FloatingLyricsOverlay(
     private var colorIndex = 0
     private val lyricColors = intArrayOf(Color.WHITE, Color.YELLOW, Color.CYAN, Color.GREEN, Color.MAGENTA)
     private var lastSnapshot: Snapshot? = null
+    private var lastLyrics: String? = null
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == FloatingLyricsPermissionActivity.KEY_ENABLED) {
             lastSnapshot?.let(::render)
@@ -90,12 +91,15 @@ internal class FloatingLyricsOverlay(
             removeOverlay()
             return
         }
-        lastPayload = buildStatusBarLyricsPayload(snapshot.lyrics, snapshot.durationMs)
-        lastPositionMs = snapshot.positionMs.coerceAtLeast(0L)
-        if (lastPayload == StatusBarLyricsPayload.Empty) {
-            removeOverlay()
-            return
+        // Keep the overlay window alive across track transitions. Lyrics commonly become null
+        // briefly while the next track is being resolved; removing the window here caused both
+        // stale lyrics and a position reset when it was recreated.
+        if (snapshot.lyrics != lastLyrics) {
+            lastLyrics = snapshot.lyrics
+            lastPayload = buildStatusBarLyricsPayload(snapshot.lyrics, snapshot.durationMs)
+            lyricText?.text = ""
         }
+        lastPositionMs = snapshot.positionMs.coerceAtLeast(0L)
         ensureOverlay()
         updateLyric(lastPositionMs)
         if (snapshot.status == PlaybackSessionStatus.Playing) startTicker() else stopTicker()
@@ -146,7 +150,8 @@ internal class FloatingLyricsOverlay(
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 160
+            x = prefs.getInt(KEY_POSITION_X, 0)
+            y = prefs.getInt(KEY_POSITION_Y, DEFAULT_POSITION_Y)
         }
 
         var downX = 0f
@@ -167,6 +172,13 @@ internal class FloatingLyricsOverlay(
                     params.x = startX + (event.rawX - downX).toInt()
                     params.y = startY + (event.rawY - downY).toInt()
                     runCatching { windowManager.updateViewLayout(view, params) }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    prefs.edit()
+                        .putInt(KEY_POSITION_X, params.x)
+                        .putInt(KEY_POSITION_Y, params.y)
+                        .apply()
                     true
                 }
                 else -> false
@@ -226,5 +238,8 @@ internal class FloatingLyricsOverlay(
 
     private companion object {
         const val TAG = "FloatingLyricsOverlay"
+        const val KEY_POSITION_X = "position_x"
+        const val KEY_POSITION_Y = "position_y"
+        const val DEFAULT_POSITION_Y = 160
     }
 }
