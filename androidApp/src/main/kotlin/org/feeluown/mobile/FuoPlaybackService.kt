@@ -234,12 +234,15 @@ class FuoPlaybackService : MediaSessionService() {
     private fun toggleCurrentFavorite() {
         val prepared = activePlayback ?: return
         val track = prepared.track
-        val originalProviderId = track.originalSource.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
-            ?: track.providerId
-            ?: track.source
-        val originalId = track.originalId.takeIf { track.isSmartReplacement && !it.isNullOrBlank() } ?: track.id
-        val providerId = originalProviderId.orEmpty().trim()
-        val identifier = originalId.trim()
+        val providerId = (
+            track.originalSource.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+                ?: track.source.takeIf { it.isNotBlank() }
+                ?: track.providerId?.substringBefore(":")
+            ).orEmpty().trim()
+        val rawIdentifier = track.originalId.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+            ?: track.providerId?.takeIf { it.isNotBlank() }
+            ?: track.id
+        val identifier = rawIdentifier.removePrefix("$providerId:").trim()
         if (providerId.isBlank() || identifier.isBlank()) return
         val uri = LocalPlaylistFileCodec.normalizeSongUri(providerId, identifier)
         val favoriteTrack = LocalPlaylistTrack(
@@ -277,10 +280,15 @@ class FuoPlaybackService : MediaSessionService() {
 
     private fun refreshFavoriteState(prepared: PreparedPlayback) {
         val track = prepared.track
-        val providerId = (track.originalSource.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
-            ?: track.providerId ?: track.source).orEmpty().trim()
-        val identifier = (track.originalId.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
-            ?: track.id).trim()
+        val providerId = (
+            track.originalSource.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+                ?: track.source.takeIf { it.isNotBlank() }
+                ?: track.providerId?.substringBefore(":")
+            ).orEmpty().trim()
+        val rawIdentifier = track.originalId.takeIf { track.isSmartReplacement && !it.isNullOrBlank() }
+            ?: track.providerId?.takeIf { it.isNotBlank() }
+            ?: track.id
+        val identifier = rawIdentifier.removePrefix("$providerId:").trim()
         if (providerId.isBlank() || identifier.isBlank()) {
             currentTrackFavorited = false
             return
