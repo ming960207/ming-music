@@ -36,6 +36,9 @@ class FuoEvolveApplication : Application() {
     internal val settingsRepository: AppSettingsRepository
         get() = container().settingsRepository
 
+    internal val localPlaylistRepository: LocalPlaylistRepository
+        get() = container().localPlaylistRepository
+
     internal val appUiGraph: AppUiGraph
         get() = container().appUiGraph
 
