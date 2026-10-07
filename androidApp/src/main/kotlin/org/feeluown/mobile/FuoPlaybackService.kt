@@ -227,7 +227,7 @@ class FuoPlaybackService : MediaSessionService() {
                     return handleMediaButtonEvent(intent)
                 }
             })
-            .setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable))
+            .setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable, currentTrackFavorited))
             .build()
     }
 
@@ -267,7 +267,7 @@ class FuoPlaybackService : MediaSessionService() {
                     ?: repository.list().firstOrNull { it.id == updated.id }?.tracks?.any { it.uri == uri }
                     ?: false
                 withContext(Dispatchers.Main.immediate) {
-                    mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable))
+                    mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable, currentTrackFavorited))
                 }
             } else {
                 AppLogger.w(TAG, "favorite mutation failed: ${result.message}")
@@ -292,7 +292,7 @@ class FuoPlaybackService : MediaSessionService() {
                 .firstOrNull { it.title == FAVORITES_PLAYLIST_TITLE }
                 ?.tracks?.any { it.uri == uri } == true
             withContext(Dispatchers.Main.immediate) {
-                mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable))
+                mediaSession?.setMediaButtonPreferences(mediaButtonPreferences(colorOsTranslationAvailable, currentTrackFavorited))
             }
         }
     }
@@ -1079,9 +1079,9 @@ class FuoPlaybackService : MediaSessionService() {
         }
 
         @OptIn(UnstableApi::class)
-        private fun mediaButtonPreferences(includeTranslation: Boolean): List<CommandButton> = buildList {
+        private fun mediaButtonPreferences(includeTranslation: Boolean, favorited: Boolean = false): List<CommandButton> = buildList {
             add(
-                CommandButton.Builder(if (currentTrackFavorited) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
+                CommandButton.Builder(if (favorited) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
                     .setSessionCommand(TOGGLE_FAVORITE_COMMAND)
                     .setDisplayName("喜欢")
                     .build(),
