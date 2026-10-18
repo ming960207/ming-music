@@ -3,6 +3,8 @@ package org.feeluown.mobile
 import android.annotation.SuppressLint
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.ConsoleMessage
@@ -19,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.delay
@@ -45,7 +48,7 @@ import org.json.JSONObject
 private const val STAGE_ASSET_PATH = "folia_stage/index.html"
 private const val STAGE_BASE_URL = "https://appassets.androidplatform.net/folia_stage/"
 private const val STAGE_LOG = "MingFoliaStage"
-private const val STAGE_BUILD = "VISUAL-R3"
+private const val STAGE_BUILD = "VISUAL-R4"
 
 private fun foliaStagePayload(state: PlaybackState, lyricOffsetMs: Long): String {
     val lines = JSONArray()
@@ -98,7 +101,7 @@ internal actual fun FoliaWebStage(
     var errorMessage by remember(webView) { mutableStateOf<String?>(null) }
     var canvasInfo by remember(webView) { mutableStateOf("无首帧信息") }
     var stageMetrics by remember(webView) { mutableStateOf("等待 JS 采样") }
-    var showDiagnosticDetails by rememberSaveable { mutableStateOf(true) }
+    var showDiagnosticDetails by remember { mutableStateOf(true) }
 
     if (webView == null || html.isFailure) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -112,11 +115,11 @@ internal actual fun FoliaWebStage(
     }
 
     DisposableEffect(webView, html) {
-        webView.setBackgroundColor(AndroidColor.rgb(8, 15, 32))
-        // This view is embedded in a Compose hierarchy. OEM hybrid GPU
-        // compositors can leave WebView's surface blank while JavaScript runs;
-        // software drawing makes this diagnostic build deterministic.
-        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        webView.setBackgroundColor(AndroidColor.TRANSPARENT)
+        // Canvas-heavy WebView content needs Chromium's accelerated compositor.
+        // SOFTWARE caused "JS first frame received" with an invisible surface
+        // on affected Compose/OEM WebView combinations.
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = false
@@ -206,17 +209,34 @@ internal actual fun FoliaWebStage(
         }, "MingMusicStage")
         // Load actual bytes from the installed APK. Do not rely on file://
         // resource handling or an unverified onPageFinished callback.
-        // Start loading only after AndroidView has a window attachment; loading
-        // detached WebViews was not sufficient to guarantee a visible surface.
+        // Loading on webView.post() alone does NOT ensure attachment/measurement.
+        // Start only when a real Android window and non-zero viewport both exist.
+        var loadStarted = false
         val loadStage = Runnable {
-            Log.i(STAGE_LOG, "Starting stage on attached=" + webView.isAttachedToWindow +
+            if (loadStarted || !webView.isAttachedToWindow ||
+                webView.width <= 0 || webView.height <= 0) return@Runnable
+            loadStarted = true
+            Log.i(STAGE_LOG, "Starting stage attached=" + webView.isAttachedToWindow +
                 " size=" + webView.width + "x" + webView.height)
             webView.loadDataWithBaseURL(
                 STAGE_BASE_URL, html.getOrThrow(), "text/html", "UTF-8", null,
             )
         }
+        val attachment = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                webView.post(loadStage)
+            }
+            override fun onViewDetachedFromWindow(v: View) = Unit
+        }
+        val layout = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            webView.post(loadStage)
+        }
+        webView.addOnAttachStateChangeListener(attachment)
+        webView.addOnLayoutChangeListener(layout)
         webView.post(loadStage)
         onDispose {
+            webView.removeOnAttachStateChangeListener(attachment)
+            webView.removeOnLayoutChangeListener(layout)
             webView.removeCallbacks(loadStage)
             webView.removeJavascriptInterface("MingMusicStage")
             webView.stopLoading()
@@ -263,7 +283,23 @@ internal actual fun FoliaWebStage(
     }
     Box(modifier.fillMaxSize()) {
         key(webView) {
-            AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
+            AndroidView(
+                factory = { activityContext ->
+                    FrameLayout(activityContext).apply {
+                        setBackgroundColor(AndroidColor.rgb(8, 21, 42))
+                        clipChildren = true
+                        clipToPadding = true
+                        addView(
+                            webView,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            ),
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize().graphicsLayer { clip = true },
+            )
         }
         // Native Compose overlay is intentionally independent of WebView's
         // bitmap: if this marker is missing, the installed APK isn't this build.
@@ -276,7 +312,8 @@ internal actual fun FoliaWebStage(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                STAGE_BUILD + " · " + (if (pageReady) "JS首帧已收到" else "等待JS首帧"),
+                STAGE_BUILD + " · " + (if (pageReady) "JS首帧已收到" else "等待JS首帧") +
+                    (if (showDiagnosticDetails) " · 点按收起" else " · 点按展开详情"),
                 color = Color.White,
             )
             if (showDiagnosticDetails) {
