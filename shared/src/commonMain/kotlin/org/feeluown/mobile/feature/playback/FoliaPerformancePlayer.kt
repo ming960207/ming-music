@@ -493,3 +493,14 @@ internal fun foliaTimeLabel(ms: Long): String {
     val seconds = ms.coerceAtLeast(0L) / 1_000L
     return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
 }
+
+/** Convert displayed aligned lyric times back to the track clock for tap-to-seek. */
+internal fun immersiveLyricSeekTarget(
+    lineTimeMs: Long,
+    offsetMs: Long,
+    durationMs: Long,
+): Long? {
+    if (lineTimeMs < 0L || lineTimeMs == Long.MAX_VALUE) return null
+    val time = (lineTimeMs + offsetMs).coerceAtLeast(0L)
+    return if (durationMs > 0L) time.coerceAtMost(durationMs) else time
+}
