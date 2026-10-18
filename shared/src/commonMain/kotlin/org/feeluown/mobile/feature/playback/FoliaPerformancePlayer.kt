@@ -81,7 +81,7 @@ import kotlin.math.abs
 
 /** Independent native Compose stage inspired by Folia's three-phase performance design. */
 internal enum class FoliaStageStyle(val title: String) {
-    Studio("绘光"), Classic("经典"), Light("流光"), Poetry("浮名"), Quiet("静谧")
+    Studio("绘光"), Classic("经典"), Light("流光"), Poetry("浮名"), Quiet("静谧"), Native("原生兼容")
 }
 
 @Composable
@@ -112,13 +112,19 @@ internal fun FoliaPerformancePlayer(
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0xFF070B15)),
     ) {
-        val webStageAvailable = FoliaWebStage(
-            state = state,
-            lyricOffsetMs = lyricOffsetMs,
-            style = style,
-            onToggleControls = { chromeVisible = !chromeVisible },
-            modifier = Modifier.fillMaxSize(),
-        )
+        // The external stage is never trusted until it confirms that Canvas
+        // has painted at least one frame; failed/blank pages keep native lyrics.
+        val webStageAvailable = if (style != FoliaStageStyle.Native) {
+            FoliaWebStage(
+                state = state,
+                lyricOffsetMs = lyricOffsetMs,
+                style = style,
+                onToggleControls = { chromeVisible = !chromeVisible },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            false
+        }
         if (!webStageAvailable) {
             Box(Modifier.fillMaxSize().pointerInput(Unit) {
                 detectTapGestures { chromeVisible = !chromeVisible }
