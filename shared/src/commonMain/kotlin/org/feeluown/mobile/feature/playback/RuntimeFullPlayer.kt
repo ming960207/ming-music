@@ -153,7 +153,7 @@ private fun RuntimeFullPlayerContent(
 
     if (immersiveMode) {
         Box(modifier = Modifier.fillMaxSize()) {
-            ImmersivePlayerScreen(
+            FoliaPerformancePlayer(
                 playbackSession = playbackSession,
                 state = state,
                 onExit = { immersiveMode = false },
