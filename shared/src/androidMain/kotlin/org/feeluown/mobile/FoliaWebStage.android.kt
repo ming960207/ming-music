@@ -216,7 +216,6 @@ internal actual fun FoliaWebStage(
                 FoliaStageStyle.Poetry -> "poetry"
                 FoliaStageStyle.Quiet -> "quiet"
                 FoliaStageStyle.Classic -> "classic"
-                FoliaStageStyle.Native -> "classic"
             }
             webView.evaluateJavascript("window.mingFolia?.setMode(${JSONObject.quote(mode)})", null)
         }
