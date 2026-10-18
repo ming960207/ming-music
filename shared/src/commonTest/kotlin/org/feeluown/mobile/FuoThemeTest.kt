@@ -8,6 +8,15 @@ import kotlin.test.assertTrue
 
 class FuoThemeTest {
     @Test
+    fun visualBaseThemeUsesOpaqueBackgroundInLightAndDarkSchemes() {
+        listOf(false, true).forEach { dark ->
+            val palette = expressiveColorScheme(Color(0xFF6750A4), darkTheme = dark)
+            assertEquals(1f, palette.background.copy(alpha = 1f).alpha)
+            assertEquals(1f, palette.surfaceContainerLowest.copy(alpha = 1f).alpha)
+        }
+    }
+
+    @Test
     fun fixedPresetsGenerateAccessibleLightAndDarkSchemes() {
         ThemeColorScheme.entries
             .filter { it != ThemeColorScheme.Dynamic }
