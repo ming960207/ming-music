@@ -8,7 +8,7 @@
 :root{color-scheme:dark}
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#0b1930;font-family:"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif}
-#stage{position:relative;width:100vw;height:100dvh;overflow:hidden;isolation:isolate;contain:layout paint style;touch-action:manipulation;user-select:none}
+#stage{position:relative;width:100vw;height:100%;height:100vh;height:100dvh;overflow:hidden;isolation:isolate;contain:layout paint style;touch-action:manipulation;user-select:none}
 #fog{position:absolute;inset:0;width:100%;height:100%;background:linear-gradient(120deg,#5cafd4,#13172b)}
 #shade{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 42% 45%,transparent 19%,rgba(4,9,27,.48) 95%),linear-gradient(0deg,#081229e8,transparent 21%,transparent 70%,#081229a8)}
 #diamond{position:absolute;left:9%;top:29%;width:min(35vw,38vh);height:min(35vw,38vh);border:1px solid #dbf6ff90;transform:rotate(45deg);box-shadow:0 0 18px #9decff33;animation:float 17s ease-in-out infinite alternate}
@@ -63,7 +63,14 @@ window.addEventListener('unhandledrejection', event => {
  let song={id:'',offset:0,lines:[]},clock={ms:0,playing:false,stamp:performance.now()};
  let shown=-100,shownId='',elements=[],mode='studio',w=0,h=0,last=0,firstFrameSent=false;
  const reduced=typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion:reduce)').matches;
- function resize(){w=stage.clientWidth;h=stage.clientHeight;const dpr=Math.min(devicePixelRatio||1,1.2)*.76;canvas.width=Math.max(1,Math.ceil(w*dpr));canvas.height=Math.max(1,Math.ceil(h*dpr))}
+ function resize(){
+  w=stage.clientWidth||window.innerWidth||document.documentElement.clientWidth;
+  h=stage.clientHeight||window.innerHeight||document.documentElement.clientHeight;
+  if(h<2){h=Math.max(1,window.innerHeight||screen.height);stage.style.height=h+'px';}
+  const dpr=Math.min(devicePixelRatio||1,1.2)*.76;
+  canvas.width=Math.max(1,Math.ceil(w*dpr));
+  canvas.height=Math.max(1,Math.ceil(h*dpr));
+ }
  addEventListener('resize',resize,{passive:true});resize();
  function playbackTime(){return Math.max(0,clock.ms+(clock.playing?performance.now()-clock.stamp:0)-song.offset)}
  function lines(){return (song.lines||[]).filter(x=>Number.isFinite(x.time)&&x.time>=0&&x.time<9e13&&x.text)}
