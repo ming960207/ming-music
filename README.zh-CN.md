@@ -86,6 +86,38 @@ FuoEvolve 使用 [Compose Multiplatform](https://www.jetbrains.com/compose-multi
 
 桌面端开发还需要 Rust/Cargo 工具链以及目标平台所需的原生依赖。具体运行与打包说明见 [desktopApp/README.md](desktopApp/README.md)、[docs/desktop-foundation.md](docs/desktop-foundation.md) 与 [docs/desktop-packaging.md](docs/desktop-packaging.md)。
 
+## Android 固定签名发布
+
+Alpha 25 与 Alpha 26 使用不同的 CI 临时 Debug 证书，无法互相覆盖安装。
+未恢复旧签名私钥前，迁移到永久签名版本需要先备份可导出的数据，再卸载旧包安装；
+卸载会删除应用私有数据。永久签名版本之间沿用 `org.feeluown.mobile`、相同证书和递增
+`versionCode`，支持保留数据的覆盖升级，安装仍需 Android 系统确认。
+
+发布证书指纹固定在 `android-release.json`，私钥和密码只放在 Git 忽略的 `signing/`
+与 `local.properties` 或环境变量中。必须另外安全备份 keystore 和密码；丢失后无法继续用该身份更新。
+Release 构建要求 `MING_VERSION_NAME`、`MING_VERSION_CODE` 以及完整 `FUO_SIGNING_*`
+配置，缺失直接失败；Debug 使用 `.debug` 包名和开发证书。
+
+Windows 本地构建并验签：
+
+```powershell
+./scripts/build-android-release.ps1 -VersionName 0.1.0-alpha.27 -VersionCode 100027
+# 后续发布必须传入上一版永久签名 APK，验证真实覆盖升级条件：
+./scripts/build-android-release.ps1 -VersionName 0.1.0-alpha.28 -VersionCode 100028 -PreviousApk <上一版APK路径>
+```
+
+GitHub Actions 的 `Signed Android Release` 仅在 main 上手动运行，需先配置 Secrets：
+
+- `FUO_SIGNING_KEYSTORE_BASE64`：同一份永久 keystore 的 Base64 内容。
+- `FUO_SIGNING_STORE_PASSWORD`、`FUO_SIGNING_KEY_ALIAS`、`FUO_SIGNING_KEY_PASSWORD`：对应签名配置。
+- `RELEASE_TOKEN`：具有 `ming960207/release` 仓库 Contents 写权限的凭证。
+
+工作流构建 Release APK，验签并比对指纹、包名、版本、Debug 标记，再与公开仓库中最高
+`versionCode` 的永久签名 APK 比较。验证通过后生成校验文件和更新清单，发布到
+`ming960207/release` 的 `ming-music-v<versionName>`，拒绝覆盖已有版本。
+新客户端从该公开仓库读取带 `ming-music-update.json` 的 Release，跳过其他工具的版本。
+首次永久签名发布以 `100026` 为迁移版本下限，不宣称兼容历史临时签名包。
+
 ## 参与贡献
 
 欢迎提交问题、功能建议和 Pull Request。可前往 [Issues](https://github.com/feeluown/FuoEvolve/issues) 和 [Pull Requests](https://github.com/feeluown/FuoEvolve/pulls)。

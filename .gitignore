@@ -15,4 +15,6 @@ iosApp/**/*.xcuserstate
 signing/
 *.jks
 *.keystore
+*.p12
+*.pfx
 __pycache__

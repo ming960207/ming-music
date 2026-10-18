@@ -242,9 +242,12 @@ internal class AndroidAppUpdateController(
             .firstOrNull { item ->
                 val draft = item["draft"]?.jsonPrimitive?.booleanOrNull == true
                 val prerelease = item["prerelease"]?.jsonPrimitive?.booleanOrNull == true
-                !draft && when (channel) {
+                val hasManifest = item["assets"]?.jsonArray?.any { asset ->
+                    asset.jsonObject["name"]?.jsonPrimitive?.contentOrNull == UPDATE_MANIFEST_ASSET
+                } == true
+                !draft && hasManifest && when (channel) {
                     AppUpdateChannel.Stable -> !prerelease
-                    AppUpdateChannel.Canary -> true
+                    AppUpdateChannel.Canary -> prerelease
                 }
             } ?: throw IOException("GitHub Release 中没有可用版本")
 
@@ -544,7 +547,7 @@ internal class AndroidAppUpdateController(
         }
         if (archiveSigners != installedSigners) {
             throw IOException(
-                "安装包签名与当前安装版本不一致，Android 无法覆盖升级。当前版本来自旧的临时调试签名；请安装一次永久签名基线版本，之后即可无感覆盖更新。",
+                "安装包签名与当前版本不一致，Android 无法覆盖升级。迁移前请备份可导出的数据；卸载旧版会删除应用私有数据。安装永久签名版本后，后续同签名更新可保留数据覆盖升级，仍需系统确认。",
             )
         }
     }
@@ -728,9 +731,9 @@ internal class AndroidAppUpdateController(
         private const val DOWNLOAD_BUFFER_BYTES = 64 * 1024
         private const val UPDATE_CACHE_DIR = "app-updates"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
-        private const val GITHUB_RELEASES_API = "https://api.github.com/repos/ming960207/ming-music/releases?per_page=20"
+        private const val GITHUB_RELEASES_API = "https://api.github.com/repos/ming960207/release/releases?per_page=100"
         private const val UPDATE_MANIFEST_ASSET = "ming-music-update.json"
-        private const val GITHUB_RELEASE_DOWNLOAD_PREFIX = "https://github.com/ming960207/ming-music/releases/download/"
+        private const val GITHUB_RELEASE_DOWNLOAD_PREFIX = "https://github.com/ming960207/release/releases/download/"
         private const val WAITING_FOR_STABLE_MESSAGE =
             "已切换至稳定版。当前版本比最新稳定版更新，将在后续稳定版发布后恢复接收稳定版更新。"
         private val SHA256_REGEX = Regex("^[0-9a-fA-F]{64}$")

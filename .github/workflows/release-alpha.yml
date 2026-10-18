@@ -1,26 +1,42 @@
-name: Release Ming Music Alpha 26 Temporary
+name: Signed Android Release
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v0.1.0-alpha.26'
-    branches:
-      - main
-    paths:
-      - '.release-alpha26-temp'
+    inputs:
+      version_name:
+        description: 'Version name, e.g. 0.1.0-alpha.27'
+        required: true
+        type: string
+      version_code:
+        description: 'Increasing versionCode, greater than 100026'
+        required: true
+        type: string
+      channel:
+        type: choice
+        options: [canary, stable]
+        default: canary
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ming-music-release
+  cancel-in-progress: false
 
 jobs:
   release:
-    if: github.repository == 'ming960207/ming-music'
+    if: github.repository == 'ming960207/ming-music' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
-      MING_VERSION_NAME: 0.1.0-alpha.26
-      MING_VERSION_CODE: 100026
+      MING_VERSION_NAME: ${{ inputs.version_name }}
+      MING_VERSION_CODE: ${{ inputs.version_code }}
+      CHANNEL: ${{ inputs.channel }}
+      RELEASE_REPO: ming960207/release
+      FUO_SIGNING_STORE_FILE: signing/ming-music-release.p12
+      FUO_SIGNING_STORE_PASSWORD: ${{ secrets.FUO_SIGNING_STORE_PASSWORD }}
+      FUO_SIGNING_KEY_ALIAS: ${{ secrets.FUO_SIGNING_KEY_ALIAS }}
+      FUO_SIGNING_KEY_PASSWORD: ${{ secrets.FUO_SIGNING_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,48 +45,103 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build temporary debug-signed APK
-        run: ./gradlew :androidApp:assembleDebug --stacktrace
-
-      - name: Verify updater points only to Ming Music GitHub
-        run: |
-          ! grep -R "feeluown.github.io/FuoEvolve/update\|raw.githubusercontent.com/feeluown/FuoEvolve/canary-dist" androidApp/src/main/kotlin/org/feeluown/mobile/update
-          grep -q "api.github.com/repos/ming960207/ming-music/releases" androidApp/src/main/kotlin/org/feeluown/mobile/update/AndroidAppUpdateController.kt
-
-      - name: Prepare APK and GitHub update manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="$(find androidApp/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          cp "$APK" MingMusic-0.1.0-alpha.26.apk
-          sha256sum MingMusic-0.1.0-alpha.26.apk > MingMusic-0.1.0-alpha.26.apk.sha256
-          chmod +x scripts/write-update-manifest.sh
-          COMMIT_SHA="$GITHUB_SHA" \
-          WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
-          RELEASE_NOTES_URL="https://github.com/ming960207/ming-music/releases/tag/v0.1.0-alpha.26" \
-          scripts/write-update-manifest.sh \
-            canary \
-            MingMusic-0.1.0-alpha.26.apk \
-            ming-music-update.json \
-            "https://github.com/ming960207/ming-music/releases/download/v0.1.0-alpha.26/MingMusic-0.1.0-alpha.26.apk"
-
-      - name: Publish GitHub prerelease
+      - name: Validate inputs and restore permanent signing key
         env:
-          GH_TOKEN: ${{ github.token }}
+          KEYSTORE_BASE64: ${{ secrets.FUO_SIGNING_KEYSTORE_BASE64 }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view v0.1.0-alpha.26 >/dev/null 2>&1; then
-            echo "Release v0.1.0-alpha.26 already exists; refusing to overwrite it."
-            exit 1
+          [[ "$MING_VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$MING_VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]]
+          (( MING_VERSION_CODE > 100026 && MING_VERSION_CODE <= 2100000000 ))
+          for name in KEYSTORE_BASE64 FUO_SIGNING_STORE_PASSWORD FUO_SIGNING_KEY_ALIAS FUO_SIGNING_KEY_PASSWORD RELEASE_TOKEN; do
+            [[ -n "${!name}" ]] || { echo "Missing required secret: $name"; exit 1; }
+          done
+          umask 077
+          mkdir -p signing
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$FUO_SIGNING_STORE_FILE"
+          echo "RELEASE_TAG=ming-music-v$MING_VERSION_NAME" >> "$GITHUB_ENV"
+          echo "APK_NAME=MingMusic-$MING_VERSION_NAME.apk" >> "$GITHUB_ENV"
+
+      - name: Regression checks
+        run: python3 -m unittest discover -s tools/ci -p test_verify_android_release.py
+
+      - name: Fetch previous permanent APK for upgrade comparison
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$RELEASE_REPO" --jq .private)" == false ]]
+          python3 tools/ci/fetch_previous_release.py
+
+      - name: Build permanent signed release APK
+        run: ./gradlew :androidApp:assembleRelease --stacktrace
+
+      - name: Verify APK before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp androidApp/build/outputs/apk/release/androidApp-release.apk "$APK_NAME"
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt | sort -V | tail -1)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          previous=()
+          if [[ -d signing/previous ]]; then
+            mapfile -t apks < <(find signing/previous -name '*.apk')
+            [[ ${#apks[@]} == 1 ]]
+            previous=(--previous-apk "${apks[0]}")
           fi
-          gh release create v0.1.0-alpha.26 \
-            MingMusic-0.1.0-alpha.26.apk \
-            MingMusic-0.1.0-alpha.26.apk.sha256 \
-            ming-music-update.json \
-            --target "$GITHUB_SHA" \
-            --prerelease \
-            --title "Ming Music 0.1.0 Alpha 26 (Temporary)" \
-            --notes "Alpha 26：新增 Folia 风格沉浸播放模式，支持歌词逐字高亮、翻译/罗马音、歌词点击跳转、封面氛围背景与横竖屏布局；保留原有播放控制和退出入口。此包使用 CI debug 临时签名，属于测试预览版，可能无法覆盖安装不同签名的旧版 APK。"
+          python3 tools/ci/verify_android_release.py "$APK_NAME" --aapt "$AAPT" --apksigner "$APKSIGNER" --version-name "$MING_VERSION_NAME" "${previous[@]}"
+          sha256sum "$APK_NAME" > "$APK_NAME.sha256"
+          COMMIT_SHA="$GITHUB_SHA" WORKFLOW_RUN_ID="$GITHUB_RUN_ID" \
+            RELEASE_NOTES_URL="https://github.com/$RELEASE_REPO/releases/tag/$RELEASE_TAG" \
+            bash scripts/write-update-manifest.sh "$CHANNEL" "$APK_NAME" ming-music-update.json \
+            "https://github.com/$RELEASE_REPO/releases/download/$RELEASE_TAG/$APK_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ming-music-signed-${{ inputs.version_code }}
+          path: |
+            MingMusic-*.apk
+            MingMusic-*.apk.sha256
+            ming-music-update.json
+          if-no-files-found: error
+
+      - name: Publish verified immutable release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # API errors must fail, rather than masquerade as a missing release.
+          gh api --paginate --slurp "repos/$RELEASE_REPO/releases?per_page=100" > signing/releases-final.json
+          python3 - <<'PY'
+          import json, os
+          releases = [r for page in json.load(open('signing/releases-final.json')) for r in page]
+          assert not any(r['tag_name'] == os.environ['RELEASE_TAG'] for r in releases), 'Release already exists; refusing overwrite'
+          PY
+          flags=()
+          [[ "$CHANNEL" != canary ]] || flags+=(--prerelease)
+          printf '%s\n' "Permanent signed Android release. Source: https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA" > signing/notes.md
+          gh release create "$RELEASE_TAG" --repo "$RELEASE_REPO" "$APK_NAME" "$APK_NAME.sha256" ming-music-update.json \
+            --draft --title "Ming Music $MING_VERSION_NAME" --notes-file signing/notes.md "${flags[@]}"
+          gh release edit "$RELEASE_TAG" --repo "$RELEASE_REPO" --draft=false
+
+      - name: Verify public download and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://github.com/$RELEASE_REPO/releases/download/$RELEASE_TAG"
+          curl --fail --location --retry 3 "$base/ming-music-update.json" -o signing/public-update.json
+          cmp ming-music-update.json signing/public-update.json
+          curl --fail --location --retry 3 "$base/$APK_NAME" -o signing/public.apk
+          [[ "$(sha256sum "$APK_NAME" | cut -d ' ' -f1)" == "$(sha256sum signing/public.apk | cut -d ' ' -f1)" ]]
+
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: rm -f signing/ming-music-release.p12

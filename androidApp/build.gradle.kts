@@ -54,6 +54,20 @@ val hasFuoSigningConfig = listOf(
     fuoSigningKeyAlias,
     fuoSigningKeyPassword,
 ).all { !it.isNullOrBlank() }
+val validateReleaseSigning by tasks.registering {
+    doLast {
+        check(hasFuoSigningConfig) {
+            "Release requires all FUO_SIGNING_* values; unsigned/debug fallback is forbidden."
+        }
+        check(rootProject.file(fuoSigningStoreFile!!).isFile) { "Release keystore does not exist" }
+        check(mingVersionName != null && mingVersionCode != null && mingVersionCode > 100026) {
+            "Release requires explicit MING_VERSION_NAME and MING_VERSION_CODE > 100026."
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(validateReleaseSigning)
+}
 android {
     namespace = "org.feeluown.mobile"
     compileSdk = libs.versions.androidCompileSdk.get().toInt()
@@ -99,11 +113,8 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = if (hasFuoSigningConfig) {
-                signingConfigs.getByName("fuo")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = true
