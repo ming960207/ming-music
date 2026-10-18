@@ -526,7 +526,7 @@ private fun lyricOffsetLabel(offsetMs: Long): String {
 }
 
 @Composable
-private fun rememberKaraokePositionMs(
+internal fun rememberKaraokePositionMs(
     positionMs: Long,
     isPlaying: Boolean,
 ): androidx.compose.runtime.State<Long> {
@@ -547,7 +547,7 @@ private fun rememberKaraokePositionMs(
 }
 
 @Composable
-private fun KaraokeLyricText(
+internal fun KaraokeLyricText(
     words: List<LyricWord>,
     positionMs: androidx.compose.runtime.State<Long>,
     style: TextStyle,

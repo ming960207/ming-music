@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.RemoveCircleOutline
@@ -62,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -147,6 +149,20 @@ private fun RuntimeFullPlayerContent(
         pageCount = { PlayerVisualTab.entries.size },
     )
     val scope = rememberCoroutineScope()
+    var immersiveMode by rememberSaveable { mutableStateOf(false) }
+
+    if (immersiveMode) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ImmersivePlayerScreen(
+                playbackSession = playbackSession,
+                state = state,
+                onExit = { immersiveMode = false },
+                onOpenQueue = LocalPlaybackNavigationPort.current::toggleQueue,
+            )
+            RuntimeQueueBottomSheet(state)
+        }
+        return
+    }
 
     if (LocalAppLayoutInfo.current.isLandscape) {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -162,7 +178,7 @@ private fun RuntimeFullPlayerContent(
                         .padding(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 68.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    RuntimePlayerHeader(currentTrack)
+                    RuntimePlayerHeader(currentTrack, onImmersiveClick = { immersiveMode = true })
                     BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
@@ -240,7 +256,7 @@ private fun RuntimeFullPlayerContent(
                     .padding(bottom = portraitBottomPadding),
                 verticalArrangement = Arrangement.spacedBy(portraitSpacing),
             ) {
-                RuntimePlayerHeader(currentTrack)
+                RuntimePlayerHeader(currentTrack, onImmersiveClick = { immersiveMode = true })
                 PrimaryTabRow(
                     selectedTabIndex = pagerState.currentPage,
                     modifier = Modifier.fillMaxWidth(),
@@ -284,7 +300,7 @@ private fun RuntimeFullPlayerContent(
 }
 
 @Composable
-private fun RuntimePlayerHeader(currentTrack: MusicTrack?) {
+private fun RuntimePlayerHeader(currentTrack: MusicTrack?, onImmersiveClick: () -> Unit) {
     val navigation = LocalPlaybackNavigationPort.current
     Box(
         modifier = Modifier
@@ -311,6 +327,9 @@ private fun RuntimePlayerHeader(currentTrack: MusicTrack?) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onImmersiveClick) {
+                Icon(Icons.Filled.Fullscreen, contentDescription = "进入沉浸播放")
+            }
             IconButton(onClick = navigation::toggleQueue) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "播放队列")
             }
@@ -320,7 +339,7 @@ private fun RuntimePlayerHeader(currentTrack: MusicTrack?) {
 }
 
 @Composable
-private fun RuntimePlayerTransport(
+internal fun RuntimePlayerTransport(
     playbackSession: PlaybackSession,
     state: PlaybackState,
     dense: Boolean,
