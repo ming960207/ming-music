@@ -14,8 +14,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -75,6 +78,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +103,7 @@ internal fun ImmersivePlayerScreen(
     onOpenQueue: () -> Unit,
 ) {
     val presentation = LocalPlaybackPresentationPort.current
+    FoliaSystemBarsEffect()
     val association by LocalPlaybackLyricsPort.current.associationState.collectAsStateWithLifecycle()
     val lyrics = remember(state.lyrics) { parseLyrics(state.lyrics) }
     val position = key(state.currentTrack?.id) {
@@ -108,6 +114,15 @@ internal fun ImmersivePlayerScreen(
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var extrasVisible by rememberSaveable { mutableStateOf(true) }
     var stageMotion by rememberSaveable { mutableStateOf(true) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var interacting by remember { mutableStateOf(false) }
+    LaunchedEffect(chromeVisible, settingsOpen, interacting, style, state.status, state.currentTrack?.id) {
+        if (!chromeVisible) interacting = false
+        if (chromeVisible && !settingsOpen && !interacting && state.status == PlayerStatus.Playing) {
+            delay(5_000)
+            chromeVisible = false
+        }
+    }
     val motionEnabled = stageMotion && !presentation.waveformAnimationDisabled
     val clock = rememberStageClock(state.status == PlayerStatus.Playing, motionEnabled)
     val image = rememberPlatformCoverImage(state.currentTrack?.coverUrl, maxSizePx = 512)
@@ -119,20 +134,23 @@ internal fun ImmersivePlayerScreen(
         background = Color(0xFF080B12), onBackground = Color.White,
     )
     MaterialTheme(colorScheme = colors) {
-        Box(Modifier.fillMaxSize()) {
-            ImmersiveStageBackdrop(image, accent, clock, style)
+        Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
+            if (style.foliaStyle != null) FoliaMovingBackdrop(image, accent, style.foliaStyle, clock)
+            else ImmersiveStageBackdrop(image, accent, clock, style)
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                 val landscape = maxWidth > maxHeight
                 val stageHeight = maxHeight
                 Column(Modifier.fillMaxSize().padding(horizontal = if (landscape) 24.dp else 12.dp)) {
+                    AnimatedVisibility(chromeVisible) {
                     if (landscape) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f)) { StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible }) }
                         Box(Modifier.weight(1f)) { StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
-                            motionEnabled, { stageMotion = !stageMotion }) }
+                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it }) }
                     } else {
                         StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible })
                         StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
-                            motionEnabled, { stageMotion = !stageMotion })
+                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it })
+                    }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         when {
@@ -140,6 +158,10 @@ internal fun ImmersivePlayerScreen(
                                 StageTrackStrip(state, compact = false)
                                 StageNoLyrics(onExit, Modifier.weight(1f))
                             }
+                            style.foliaStyle != null -> FoliaWordStage(lyrics, alignedPosition, state.currentTrack?.id,
+                                style.foliaStyle, accent, motionEnabled, extrasVisible, presentation.lyricFontSize,
+                                onSeek = { time -> immersiveLyricSeekTarget(time, offset, state.durationMs)?.let(presentation::seekTo) },
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp))
                             style == ImmersiveStageStyle.Focus -> Column(Modifier.fillMaxSize()) {
                                 if (chromeVisible && !landscape) StageTrackStrip(state, compact = true)
                                 StageFocusLyrics(lyrics, alignedPosition, extrasVisible, landscape,
@@ -177,7 +199,11 @@ internal fun ImmersivePlayerScreen(
                     AnimatedVisibility(chromeVisible) {
                         Surface(color = Color.White.copy(alpha = 0.045f), shape = RoundedCornerShape(24.dp),
                             modifier = Modifier.widthIn(max = 740.dp).fillMaxWidth().align(Alignment.CenterHorizontally)) {
-                            Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) interacting = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
+                                }
+                            }) {
                                 RuntimePlayerTransport(playbackSession, state, dense = true)
                             }
                         }
@@ -207,12 +233,13 @@ private fun StageHeader(style: ImmersiveStageStyle, chromeVisible: Boolean, onEx
 
 @Composable
 private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveStageStyle) -> Unit,
-    extras: Boolean, onExtras: () -> Unit, motion: Boolean, onMotion: () -> Unit) {
+    extras: Boolean, onExtras: () -> Unit, motion: Boolean, onMotion: () -> Unit, onMenu: (Boolean) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center) {
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
         ImmersiveStageStyle.entries.forEach { item ->
-            TextButton(onClick = { onStyle(item) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+            TextButton(onClick = { onStyle(item) }, modifier = Modifier.widthIn(min = 68.dp).heightIn(min = 48.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(item.title, color = if (style == item) Color.White else Color.White.copy(alpha = 0.45f),
                         fontWeight = if (style == item) FontWeight.Bold else FontWeight.Normal)
@@ -221,11 +248,12 @@ private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveSt
                 }
             }
         }
+        }
         Box {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreHoriz, "舞台设置") }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text(if (extras) "隐藏译文与音译" else "显示译文与音译") }, onClick = { onExtras(); menu = false })
-                DropdownMenuItem(text = { Text(if (motion) "关闭舞台动效" else "开启舞台动效") }, onClick = { onMotion(); menu = false })
+            IconButton(onClick = { menu = true; onMenu(true) }) { Icon(Icons.Filled.MoreHoriz, "舞台设置") }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false; onMenu(false) }) {
+                DropdownMenuItem(text = { Text(if (extras) "隐藏译文与音译" else "显示译文与音译") }, onClick = { onExtras(); menu = false; onMenu(false) })
+                DropdownMenuItem(text = { Text(if (motion) "关闭舞台动效" else "开启舞台动效") }, onClick = { onMotion(); menu = false; onMenu(false) })
             }
         }
     }
@@ -277,11 +305,12 @@ internal fun StageFlowLyrics(lyrics: List<LyricLine>, position: State<Long>, ext
     val list = rememberLazyListState()
     var following by remember(trackId) { mutableStateOf(true) }
     val dragged by list.interactionSource.collectIsDraggedAsState()
+    val viewportHeight by remember(list) { derivedStateOf { list.layoutInfo.viewportEndOffset - list.layoutInfo.viewportStartOffset } }
     LaunchedEffect(dragged) { if (dragged) following = false }
     LaunchedEffect(following, list.isScrollInProgress) {
         if (!following && !list.isScrollInProgress) { delay(6_000); following = true }
     }
-    LaunchedEffect(focused, following, lyrics, trackId) {
+    LaunchedEffect(focused, following, lyrics, trackId, viewportHeight, motion) {
         if (!following) return@LaunchedEffect
         if (focused < 0) { list.scrollToItem(0); return@LaunchedEffect }
         val target = focused + 1
@@ -381,7 +410,7 @@ internal fun StageFocusLyrics(lyrics: List<LyricLine>, position: State<Long>, ex
 }
 
 @Composable
-private fun StageInterlude(lyrics: List<LyricLine>, position: State<Long>, modifier: Modifier) {
+internal fun StageInterlude(lyrics: List<LyricLine>, position: State<Long>, modifier: Modifier) {
     val seconds by remember(lyrics, position) { derivedStateOf { immersiveInterlude(lyrics, position.value)?.let { (it.remainingMs + 999) / 1_000 } } }
     if (seconds != null) Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         val accent = MaterialTheme.colorScheme.primary

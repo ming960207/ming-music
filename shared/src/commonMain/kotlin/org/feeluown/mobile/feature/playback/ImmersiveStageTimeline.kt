@@ -1,7 +1,11 @@
 package org.feeluown.mobile
 
-internal enum class ImmersiveStageStyle(val title: String, val subtitle: String) {
-    Flow("流光", "随歌词流动"),
+internal enum class ImmersiveStageStyle(val title: String, val subtitle: String, val foliaStyle: FoliaStageStyle? = null) {
+    Classic("经典", "随词句渐入", FoliaStageStyle.Classic),
+    Light("流光", "字句与光点交织", FoliaStageStyle.Light),
+    Poetry("浮名", "前后句之间的留白", FoliaStageStyle.Poetry),
+    Quiet("静谧", "安静地听见每一句", FoliaStageStyle.Quiet),
+    Flow("随行", "随歌词流动"),
     Focus("聚焦", "每一句都是主角"),
     Vinyl("唱片", "让旋律慢慢转动"),
 }

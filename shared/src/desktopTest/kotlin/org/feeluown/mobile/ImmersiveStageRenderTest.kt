@@ -38,13 +38,16 @@ class ImmersiveStageRenderTest {
                 ImageComposeScene(width = width, height = height) {
                     MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
                         Box(Modifier.fillMaxSize()) {
-                            ImmersiveStageBackdrop(null, accent, clock, style)
+                            if (style.foliaStyle != null) FoliaMovingBackdrop(null, accent, style.foliaStyle, clock)
+                            else ImmersiveStageBackdrop(null, accent, clock, style)
                             Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("晚风与星光 · ${style.title}", Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
                                 if (style == ImmersiveStageStyle.Vinyl) {
                                     ImmersiveVinylCover(null, accent, clock, Modifier.size(if (height > width) 230.dp else 120.dp))
                                 }
-                                if (style == ImmersiveStageStyle.Focus) StageFocusLyrics(lyrics, position, true, width > height,
+                                if (style.foliaStyle != null) FoliaWordStage(lyrics, position, "fixture", style.foliaStyle,
+                                    accent, false, true, LyricFontSize.Medium, {}, Modifier.weight(1f).fillMaxWidth())
+                                else if (style == ImmersiveStageStyle.Focus) StageFocusLyrics(lyrics, position, true, width > height,
                                     LyricFontSize.Medium, accent, false, Modifier.weight(1f), {})
                                 else StageFlowLyrics(lyrics, position, true, 0, 60_000, LyricFontSize.Medium,
                                     accent, false, "fixture", {}, Modifier.weight(1f).fillMaxWidth())

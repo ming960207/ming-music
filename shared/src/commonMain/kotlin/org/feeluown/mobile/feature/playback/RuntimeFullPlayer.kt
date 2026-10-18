@@ -150,14 +150,14 @@ private fun RuntimeFullPlayerContent(
     )
     val scope = rememberCoroutineScope()
     var immersiveMode by rememberSaveable { mutableStateOf(false) }
-    var immersiveStyleName by rememberSaveable { mutableStateOf(ImmersiveStageStyle.Flow.name) }
+    var immersiveStyleName by rememberSaveable { mutableStateOf(ImmersiveStageStyle.Classic.name) }
 
     if (immersiveMode) {
         Box(modifier = Modifier.fillMaxSize()) {
             ImmersivePlayerScreen(
                 playbackSession = playbackSession,
                 state = state,
-                style = ImmersiveStageStyle.entries.firstOrNull { it.name == immersiveStyleName } ?: ImmersiveStageStyle.Flow,
+                style = ImmersiveStageStyle.entries.firstOrNull { it.name == immersiveStyleName } ?: ImmersiveStageStyle.Classic,
                 onStyleChange = { immersiveStyleName = it.name },
                 onExit = { immersiveMode = false },
                 onOpenQueue = LocalPlaybackNavigationPort.current::toggleQueue,

@@ -26,7 +26,7 @@ jobs:
       - name: Build Android debug APK
         run: ./gradlew :androidApp:assembleDebug --stacktrace
       - name: Verify immersive stage timing and architecture
-        run: ./gradlew :shared:testAndroidHostTest --tests '*Immersive*' --tests '*LyricsParserTest' checkArchitectureBoundaries :androidApp:lintDebug --stacktrace
+        run: ./gradlew :shared:testAndroidHostTest --tests '*Immersive*' --tests '*LyricsParserTest' --tests '*FoliaPerformanceTest' --tests '*FuoThemeTest' checkArchitectureBoundaries :androidApp:lintDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
       - uses: gradle/actions/setup-gradle@v4
       - name: Render native Compose stage previews
         run: ./gradlew :shared:desktopTest --tests 'org.feeluown.mobile.ImmersiveStageRenderTest' -Djava.awt.headless=true --stacktrace
