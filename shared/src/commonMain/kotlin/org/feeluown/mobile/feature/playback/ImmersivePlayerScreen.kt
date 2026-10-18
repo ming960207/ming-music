@@ -412,7 +412,7 @@ internal fun StageFocusLyrics(lyrics: List<LyricLine>, position: State<Long>, ex
                     else StageLyricText(current, true, position, MaterialTheme.typography.displaySmall.copy(
                         fontSize = size.sp, lineHeight = (size * 1.45f).sp, fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                        lineBreak = LineBreak.Heading.copy(strategy = LineBreak.Strategy.Balanced)), accent, extras)
+                        lineBreak = LineBreak.Heading), accent, extras)
                 }
             }
         }
