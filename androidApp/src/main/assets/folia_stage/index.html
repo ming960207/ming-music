@@ -61,7 +61,7 @@ window.addEventListener('unhandledrejection', event => {
  const stage=document.getElementById('stage'),layer=document.getElementById('words');
  const subtitle=document.getElementById('subtitle'),empty=document.getElementById('empty');
  let song={id:'',offset:0,lines:[]},clock={ms:0,playing:false,stamp:performance.now()};
- let shown=-100,shownId='',elements=[],mode='studio',w=0,h=0,last=0,firstFrameSent=false;
+ let shown=-100,shownId='',elements=[],mode='studio',w=0,h=0,last=0,firstFrameSent=false,lastMetricsAt=0,frames=0;
  const reduced=typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion:reduce)').matches;
  function resize(){
   w=stage.clientWidth||window.innerWidth||document.documentElement.clientWidth;
@@ -107,6 +107,7 @@ window.addEventListener('unhandledrejection', event => {
  function draw(now){
   requestAnimationFrame(draw);
   if(!ctx||!w||!h||now-last<(reduced?100:w<700?40:28))return;last=now;
+  frames++;
   const cw=canvas.width,ch=canvas.height, t=now*.00017;
   ctx.globalCompositeOperation='source-over';ctx.fillStyle='#101b35';ctx.fillRect(0,0,cw,ch);
   const base=ctx.createLinearGradient(0,0,cw,ch);
@@ -127,6 +128,18 @@ window.addEventListener('unhandledrejection', event => {
     firstFrameSent=true;
     try { window.MingMusicStage?.stageReady(canvas.width,canvas.height); } catch (_) {}
   }
+  if(now-lastMetricsAt>2200){
+    lastMetricsAt=now;
+    try {
+      const pixel=ctx.getImageData(Math.floor(cw/2),Math.floor(ch/2),1,1).data;
+      const metrics=JSON.stringify({
+        build:'VISUAL-R3',frames:frames,stage:[stage.clientWidth,stage.clientHeight],
+        canvas:[cw,ch],centerRGB:[pixel[0],pixel[1],pixel[2]],
+        lyrics:(song.lines||[]).length,mode:mode,
+      });
+      window.MingMusicStage?.stageMetrics(metrics);
+    }catch(e){window.MingMusicStage?.stageMetrics('status sampling error: '+String(e));}
+  }
   const arr=lines(),tm=playbackTime(),idx=lineIndex(tm,arr);
   if(idx!==shown||shownId!==song.id){shownId=song.id;present(idx,arr)}
   for(const el of elements){
@@ -139,7 +152,7 @@ window.addEventListener('unhandledrejection', event => {
  }
  requestAnimationFrame(draw);
  window.mingFolia={
-  status(){return JSON.stringify({ready:firstFrameSent,width:canvas.width,height:canvas.height,lyrics:song.lines?.length||0,mode});},
+  status(){return JSON.stringify({build:'VISUAL-R3',ready:firstFrameSent,width:canvas.width,height:canvas.height,stageHeight:stage.clientHeight,frames,lyrics:song.lines?.length||0,mode});},
   setSong(data){const v=typeof data==='string'?JSON.parse(data):data;song={id:String(v.id||''),offset:Number(v.offset)||0,lines:v.lines||[]};shown=-100;shownId=''},
   sync(ms,playing){const expected=clock.ms+(clock.playing?performance.now()-clock.stamp:0),next=Math.max(0,Number(ms)||0);
    if(Math.abs(expected-next)>125||clock.playing!==!!playing)clock={ms:next,playing:!!playing,stamp:performance.now()}},
