@@ -2,9 +2,11 @@ package org.feeluown.mobile
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -37,6 +39,7 @@ class ImmersiveStageRenderTest {
             for (style in ImmersiveStageStyle.entries) {
                 val scene = ImageComposeScene(width = width, height = height) {
                     MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
+                        CompositionLocalProvider(LocalContentColor provides Color.White) {
                         Box(Modifier.fillMaxSize()) {
                             if (style.foliaStyle != null) FoliaMovingBackdrop(null, accent, style.foliaStyle, clock)
                             else ImmersiveStageBackdrop(null, accent, clock, style)
@@ -52,6 +55,7 @@ class ImmersiveStageRenderTest {
                                 else StageFlowLyrics(lyrics, position, true, 0, 60_000, LyricFontSize.Medium,
                                     accent, false, "fixture", {}, Modifier.weight(1f).fillMaxWidth())
                             }
+                        }
                         }
                     }
                 }

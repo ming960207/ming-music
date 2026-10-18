@@ -55,11 +55,13 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -73,8 +75,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -134,6 +140,7 @@ internal fun ImmersivePlayerScreen(
         background = Color(0xFF080B12), onBackground = Color.White,
     )
     MaterialTheme(colorScheme = colors) {
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
         Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
             if (style.foliaStyle != null) FoliaMovingBackdrop(image, accent, style.foliaStyle, clock)
             else ImmersiveStageBackdrop(image, accent, clock, style)
@@ -211,6 +218,7 @@ internal fun ImmersivePlayerScreen(
                     Spacer(Modifier.height(8.dp))
                 }
             }
+        }
         }
     }
 }
@@ -331,7 +339,12 @@ internal fun StageFlowLyrics(lyrics: List<LyricLine>, position: State<Long>, ext
         val textStyle = MaterialTheme.typography.headlineLarge.copy(fontSize = textSize, lineHeight = textSize * 1.42f,
             fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
         val spacer = maxHeight * 0.40f
-        LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = list, modifier = Modifier.fillMaxSize().graphicsLayer {
+            compositingStrategy = CompositingStrategy.Offscreen
+        }.drawWithCache {
+            val mask = Brush.verticalGradient(0f to Color.Transparent, 0.12f to Color.Black, 0.87f to Color.Black, 1f to Color.Transparent)
+            onDrawWithContent { drawContent(); drawRect(mask, blendMode = BlendMode.DstIn) }
+        }) {
             item(key = "stage-top") { Spacer(Modifier.height(spacer)) }
             itemsIndexed(lyrics, key = { i, line -> "$i-${line.timeMs}" }) { index, line ->
                 val distance = abs(index - focused)

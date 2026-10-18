@@ -44,6 +44,11 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Install native CJK font fallback for stage rendering
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-match 'sans-serif:lang=zh'
       - name: Render native Compose stage previews
         run: ./gradlew :shared:desktopTest --tests 'org.feeluown.mobile.ImmersiveStageRenderTest' -Djava.awt.headless=true --stacktrace
       - name: Upload phone and landscape previews
