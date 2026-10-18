@@ -32,6 +32,8 @@ jobs:
           test -n "$apk"
           unzip -Z1 "$apk" | grep -Fx 'assets/folia_stage/index.html'
           unzip -p "$apk" 'assets/folia_stage/index.html' | grep -q 'stageReady'
+          # Legacy Android WebView may not support dvh. Require an older-unit fallback.
+          unzip -p "$apk" 'assets/folia_stage/index.html' | grep -Fq 'height:100vh;height:100dvh'
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
