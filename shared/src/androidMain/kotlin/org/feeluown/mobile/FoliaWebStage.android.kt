@@ -126,7 +126,11 @@ internal actual fun FoliaWebStage(
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 Log.d(STAGE_LOG, "JS " + message.messageLevel() + ": " + message.message())
-                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR &&
+                    (message.message().contains("Uncaught") ||
+                        message.message().contains("SyntaxError") ||
+                        message.message().contains("ReferenceError"))
+                ) {
                     fail("JavaScript: " + message.message())
                 }
                 return true
