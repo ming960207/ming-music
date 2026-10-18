@@ -284,8 +284,9 @@ private fun FoliaWordStage(
             val active = lines[index]
             val previous = lines.getOrNull(index - 1)
             val next = lines.getOrNull(index + 1)
+            val compactHeight = maxHeight < 430.dp
             val font = when {
-                maxHeight < 430.dp -> 27.sp
+                compactHeight -> 27.sp
                 maxWidth < 430.dp -> 35.sp
                 else -> 54.sp
             }
@@ -346,7 +347,7 @@ private fun FoliaWordStage(
                             immersiveLyricSeekTarget(nextLine.timeMs, offset, state.durationMs)?.let(onSeek)
                         },
                         color = Color.White.copy(alpha = 0.28f),
-                        style = TextStyle(fontSize = if (maxHeight < 430.dp) 15.sp else 19.sp, lineHeight = 25.sp),
+                        style = TextStyle(fontSize = if (compactHeight) 15.sp else 19.sp, lineHeight = 25.sp),
                         textAlign = TextAlign.Center,
                         maxLines = 2,
                     )
@@ -410,6 +411,7 @@ private fun FoliaAnimatedWords(
  */
 internal fun foliaPerformanceTokens(line: LyricLine, nextStartMs: Long): List<LyricWord> {
     if (!line.words.isNullOrEmpty()) return line.words
+    if (line.timeMs == Long.MAX_VALUE) return listOf(LyricWord(0L, 1L, line.text))
     val text = line.text
     if (text.isBlank()) return emptyList()
     val codeUnits = text.map(Char::toString)
