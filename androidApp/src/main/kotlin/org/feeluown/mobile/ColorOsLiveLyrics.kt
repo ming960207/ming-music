@@ -1,7 +1,9 @@
 package org.feeluown.mobile
 
 import android.os.Parcel
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.util.UnstableApi
 import org.json.JSONObject
 
 internal const val COLOR_OS_LYRIC_INFO_KEY = "lyricInfo"
@@ -47,6 +49,7 @@ internal fun buildColorOsLyricInfo(
         .toString()
 }
 
+@OptIn(UnstableApi::class)
 internal fun isColorOsMetadataWithinLimit(metadata: MediaMetadata): Boolean {
     val parcel = Parcel.obtain()
     return try {
