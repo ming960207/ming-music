@@ -81,7 +81,7 @@ import kotlin.math.abs
 
 /** Independent native Compose stage inspired by Folia's three-phase performance design. */
 internal enum class FoliaStageStyle(val title: String) {
-    Classic("经典"), Light("流光"), Poetry("浮名"), Quiet("静谧")
+    Studio("绘光"), Classic("经典"), Light("流光"), Poetry("浮名"), Quiet("静谧")
 }
 
 @Composable
@@ -95,10 +95,12 @@ internal fun FoliaPerformancePlayer(
     val queue = LocalPlaybackQueueUiPort.current
     val accent = MaterialTheme.colorScheme.primary
     val image = rememberPlatformCoverImage(state.currentTrack?.coverUrl, maxSizePx = 512)
-    var styleName by rememberSaveable { mutableStateOf(FoliaStageStyle.Classic.name) }
-    val style = FoliaStageStyle.entries.firstOrNull { it.name == styleName } ?: FoliaStageStyle.Classic
+    var styleName by rememberSaveable { mutableStateOf(FoliaStageStyle.Studio.name) }
+    val style = FoliaStageStyle.entries.firstOrNull { it.name == styleName } ?: FoliaStageStyle.Studio
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var styleMenu by remember { mutableStateOf(false) }
+    val association by LocalPlaybackLyricsPort.current.associationState.collectAsStateWithLifecycle()
+    val lyricOffsetMs = if (association.trackId == state.currentTrack?.id) association.alignmentOffsetMs else 0L
     val isPlaying = state.status == PlayerStatus.Playing
     FoliaSystemBarsEffect()
     LaunchedEffect(chromeVisible, styleMenu, isPlaying, styleName, state.currentTrack?.id) {
@@ -108,17 +110,29 @@ internal fun FoliaPerformancePlayer(
         }
     }
     Box(
-        modifier = Modifier.fillMaxSize().background(Color(0xFF070B15))
-            .pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } },
+        modifier = Modifier.fillMaxSize().background(Color(0xFF070B15)),
     ) {
-        FoliaMovingBackdrop(image, accent, style)
-        FoliaWordStage(
+        val webStageAvailable = FoliaWebStage(
             state = state,
+            lyricOffsetMs = lyricOffsetMs,
             style = style,
-            accent = accent,
-            onSeek = presentation::seekTo,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 56.dp),
+            onToggleControls = { chromeVisible = !chromeVisible },
+            modifier = Modifier.fillMaxSize(),
         )
+        if (!webStageAvailable) {
+            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTapGestures { chromeVisible = !chromeVisible }
+            }) {
+                FoliaMovingBackdrop(image, accent, style)
+                FoliaWordStage(
+                    state = state,
+                    style = style,
+                    accent = accent,
+                    onSeek = presentation::seekTo,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 56.dp),
+                )
+            }
+        }
         AnimatedVisibility(
             visible = chromeVisible,
             enter = fadeIn(tween(230)),
