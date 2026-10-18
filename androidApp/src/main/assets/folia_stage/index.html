@@ -48,13 +48,21 @@ html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#0b1930;fon
 </div>
 <script>
 "use strict";
+// Report errors to Android instead of leaving the stage silently blank.
+window.addEventListener('error', event => {
+  try { window.MingMusicStage?.stageFailure('javascript: ' + (event.message || 'unknown')); } catch (_) {}
+});
+window.addEventListener('unhandledrejection', event => {
+  try { window.MingMusicStage?.stageFailure('promise: ' + String(event.reason)); } catch (_) {}
+});
 (() => {
  const canvas=document.getElementById('fog'), ctx=canvas.getContext('2d',{alpha:false});
+ if (!ctx) { window.MingMusicStage?.stageFailure('Canvas 2D context unavailable'); return; }
  const stage=document.getElementById('stage'),layer=document.getElementById('words');
  const subtitle=document.getElementById('subtitle'),empty=document.getElementById('empty');
  let song={id:'',offset:0,lines:[]},clock={ms:0,playing:false,stamp:performance.now()};
- let shown=-100,shownId='',elements=[],mode='studio',w=0,h=0,last=0;
- const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
+ let shown=-100,shownId='',elements=[],mode='studio',w=0,h=0,last=0,firstFrameSent=false;
+ const reduced=typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion:reduce)').matches;
  function resize(){w=stage.clientWidth;h=stage.clientHeight;const dpr=Math.min(devicePixelRatio||1,1.2)*.76;canvas.width=Math.max(1,Math.ceil(w*dpr));canvas.height=Math.max(1,Math.ceil(h*dpr))}
  addEventListener('resize',resize,{passive:true});resize();
  function playbackTime(){return Math.max(0,clock.ms+(clock.playing?performance.now()-clock.stamp:0)-song.offset)}
@@ -108,6 +116,10 @@ html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#0b1930;fon
    ctx.fillStyle=g;ctx.fillRect(cx-r,cy-r,r*2,r*2)
   }
   ctx.globalCompositeOperation='source-over';
+  if(!firstFrameSent) {
+    firstFrameSent=true;
+    try { window.MingMusicStage?.stageReady(canvas.width,canvas.height); } catch (_) {}
+  }
   const arr=lines(),tm=playbackTime(),idx=lineIndex(tm,arr);
   if(idx!==shown||shownId!==song.id){shownId=song.id;present(idx,arr)}
   for(const el of elements){
@@ -120,6 +132,7 @@ html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#0b1930;fon
  }
  requestAnimationFrame(draw);
  window.mingFolia={
+  status(){return JSON.stringify({ready:firstFrameSent,width:canvas.width,height:canvas.height,lyrics:song.lines?.length||0,mode});},
   setSong(data){const v=typeof data==='string'?JSON.parse(data):data;song={id:String(v.id||''),offset:Number(v.offset)||0,lines:v.lines||[]};shown=-100;shownId=''},
   sync(ms,playing){const expected=clock.ms+(clock.playing?performance.now()-clock.stamp:0),next=Math.max(0,Number(ms)||0);
    if(Math.abs(expected-next)>125||clock.playing!==!!playing)clock={ms:next,playing:!!playing,stamp:performance.now()}},
