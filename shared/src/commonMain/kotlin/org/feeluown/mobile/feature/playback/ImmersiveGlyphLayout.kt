@@ -4,6 +4,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 /** Keep surrogate pairs, combining marks and joined emoji together. */
@@ -60,6 +61,47 @@ internal fun stageGlyphPageAt(units: List<LyricWord>, positionMs: Long, pageSize
 }
 
 internal data class StageGlyphMetric(val width: Float, val height: Float, val rotation: Float)
+
+internal data class StageGlyphPoint(val x: Float, val y: Float)
+internal data class StageGlyphFlight(
+    val from: StageGlyphPoint, val control1: StageGlyphPoint, val control2: StageGlyphPoint,
+    val to: StageGlyphPoint, val leadMs: Long,
+)
+
+/** Seeded paths are part of the scene; playback time only evaluates them. */
+internal fun stageGlyphFlight(landing: StageGlyphPlacement, width: Float, height: Float, seed: Int, index: Int): StageGlyphFlight {
+    val random = Random(seed xor (index * 7_919 + 0x65A31))
+    val from = StageGlyphPoint(if (random.nextBoolean()) -width * 0.12f else width * 1.12f, height * (0.15f + random.nextFloat() * 0.7f))
+    val to = StageGlyphPoint(landing.centerX, landing.centerY)
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    val length = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+    val bend = height * (0.12f + random.nextFloat() * 0.16f) * if (random.nextBoolean()) 1 else -1
+    val nx = -dy / length * bend
+    val ny = dx / length * bend
+    return StageGlyphFlight(from, StageGlyphPoint(from.x + dx * 0.28f + nx, from.y + dy * 0.28f + ny),
+        StageGlyphPoint(from.x + dx * 0.72f + nx, from.y + dy * 0.72f + ny), to, 520L + random.nextInt(240))
+}
+
+internal fun stageGlyphEntryProgress(glyph: LyricWord, timeMs: Long, flight: StageGlyphFlight): Float =
+    ((timeMs.toDouble() - glyph.startMs + flight.leadMs) / flight.leadMs).toFloat().coerceIn(0f, 1f)
+
+/** De Casteljau evaluation keeps replay and seeking independent of frame history. */
+internal fun stageGlyphFlightPoint(flight: StageGlyphFlight, progress: Float): StageGlyphPoint {
+    if (progress <= 0) return flight.from
+    if (progress >= 1) return flight.to
+    val t = progress * progress * (3 - 2 * progress)
+    fun coordinate(a: Float, b: Float, c: Float, d: Float): Float {
+        val ab = a + (b - a) * t
+        val bc = b + (c - b) * t
+        val cd = c + (d - c) * t
+        val left = ab + (bc - ab) * t
+        val right = bc + (cd - bc) * t
+        return left + (right - left) * t
+    }
+    return StageGlyphPoint(coordinate(flight.from.x, flight.control1.x, flight.control2.x, flight.to.x),
+        coordinate(flight.from.y, flight.control1.y, flight.control2.y, flight.to.y))
+}
 
 internal data class StageGlyphPlacement(
     val centerX: Float,

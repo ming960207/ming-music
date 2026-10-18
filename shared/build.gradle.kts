@@ -460,3 +460,9 @@ tasks.named("allTests") {
     dependsOn(":provider:qqmusic:allTests")
     dependsOn(":provider:ytmusic:allTests")
 }
+
+// Keep native preview artifacts reproducible when Gradle restores a cached test run.
+tasks.named("desktopTest") {
+    outputs.dir(layout.buildDirectory.dir("stage-previews"))
+    outputs.dir(layout.buildDirectory.dir("stage-motion"))
+}

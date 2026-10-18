@@ -49,11 +49,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends fonts-noto-cjk
           fc-match 'sans-serif:lang=zh'
+          command -v ffmpeg >/dev/null || sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Render native Compose stage previews
         run: ./gradlew :shared:desktopTest --tests 'org.feeluown.mobile.ImmersiveStageRenderTest' -Djava.awt.headless=true --stacktrace
+      - name: Encode native glyph choreography preview
+        run: ffmpeg -hide_banner -loglevel error -y -framerate 24 -i shared/build/stage-motion/frame-%03d.png -c:v libx264 -crf 18 -pix_fmt yuv420p shared/build/stage-previews/Glyph-motion.mp4
       - name: Upload phone and landscape previews
         uses: actions/upload-artifact@v4
         with:
           name: immersive-stage-previews
-          path: shared/build/stage-previews/*.png
+          path: |
+            shared/build/stage-previews/*.png
+            shared/build/stage-previews/*.mp4
           if-no-files-found: error

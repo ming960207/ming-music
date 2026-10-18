@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.math.abs
 
 class ImmersiveGlyphStageTest {
     @Test
@@ -57,5 +58,27 @@ class ImmersiveGlyphStageTest {
         assertEquals(0, stageGlyphPageAt(units, 6_999, 14))
         assertEquals(1, stageGlyphPageAt(units, 7_000, 14))
         assertEquals(2, stageGlyphPageAt(units, 99_000, 14))
+    }
+
+    @Test
+    fun flightHasStableCurvedGeometryAndExactEndpoints() {
+        val landing = StageGlyphPlacement(180f, 220f, 1f, 8f, 60f, 70f)
+        val flight = stageGlyphFlight(landing, 380f, 480f, 42, 3)
+        assertEquals(flight, stageGlyphFlight(landing, 380f, 480f, 42, 3))
+        assertEquals(flight.from, stageGlyphFlightPoint(flight, 0f))
+        assertEquals(StageGlyphPoint(180f, 220f), stageGlyphFlightPoint(flight, 1f))
+        val middle = stageGlyphFlightPoint(flight, 0.5f)
+        assertTrue(abs(middle.y - (flight.from.y + flight.to.y) / 2) > 1f)
+    }
+
+    @Test
+    fun flightArrivesAtTheLyricCueAndSeekingIsReproducible() {
+        val flight = stageGlyphFlight(StageGlyphPlacement(180f, 220f, 1f, 0f, 60f, 70f), 380f, 480f, 42, 0)
+        val word = LyricWord(2_000, 500, "星")
+        assertEquals(0f, stageGlyphEntryProgress(word, 2_000 - flight.leadMs, flight))
+        assertEquals(1f, stageGlyphEntryProgress(word, 2_000, flight))
+        val at = stageGlyphFlightPoint(flight, stageGlyphEntryProgress(word, 1_800, flight))
+        stageGlyphFlightPoint(flight, stageGlyphEntryProgress(word, 2_500, flight))
+        assertEquals(at, stageGlyphFlightPoint(flight, stageGlyphEntryProgress(word, 1_800, flight)))
     }
 }

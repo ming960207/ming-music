@@ -150,7 +150,7 @@ internal fun ImmersivePlayerScreen(
                 val stageHeight = maxHeight
                 if (style == ImmersiveStageStyle.Glyph && lyrics.isNotEmpty()) {
                     // The glyph canvas is independent of chrome height, so controls cannot reshuffle letters.
-                    ImmersiveGlyphStage(lyrics, alignedPosition, clock, state.currentTrack?.id, accent,
+                    ImmersiveGlyphStage(lyrics, alignedPosition, state.currentTrack?.id, accent,
                         presentation.lyricFontSize, motionEnabled, extrasVisible,
                         onSeek = { time -> immersiveLyricSeekTarget(time, offset, state.durationMs)?.let(presentation::seekTo) },
                         onBlankTap = { chromeVisible = !chromeVisible },
