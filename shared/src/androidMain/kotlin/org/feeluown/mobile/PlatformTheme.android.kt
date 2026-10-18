@@ -22,9 +22,15 @@ internal actual fun platformDynamicColorScheme(darkTheme: Boolean): ColorScheme?
 @Composable
 internal actual fun platformWindowSurfaceEffect(surfaceColor: Color) {
     val context = LocalContext.current
+    // Window backgrounds are a fallback beneath Compose. Replacing the drawable on
+    // every recomposition invalidates the whole hardware window and is especially
+    // problematic with continuously animated playback colors.
+    val opaqueArgb = opaqueRenderBacking(surfaceColor).toArgb()
     SideEffect {
-        (context as? Activity)?.window?.setBackgroundDrawable(
-            ColorDrawable(surfaceColor.toArgb()),
-        )
+        val window = (context as? Activity)?.window ?: return@SideEffect
+        val existingColor = (window.decorView.background as? ColorDrawable)?.color
+        if (existingColor != opaqueArgb) {
+            window.setBackgroundDrawable(ColorDrawable(opaqueArgb))
+        }
     }
 }

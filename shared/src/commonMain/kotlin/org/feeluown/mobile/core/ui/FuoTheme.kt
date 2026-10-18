@@ -71,12 +71,19 @@ fun FuoTheme(
         LocalBaseTargetColorScheme provides targetColorScheme,
     ) {
         FuoExpressiveTheme(colorScheme = animatedColorScheme) {
-            platformWindowSurfaceEffect(animatedColorScheme.surface)
+            // The theme's UI surfaces may be translucent to show user wallpaper, but the
+            // Android window itself must remain opaque. Passing the transparent UI surface
+            // caused incomplete frame clearing (black gaps and stale text/card trails) on
+            // some hardware renderers after animated full-screen transitions.
+            platformWindowSurfaceEffect(opaqueRenderBacking(targetColorScheme.background))
             content()
         }
     }
 }
 
+
+/** Under every translucent Compose surface, the render target must be fully opaque. */
+internal fun opaqueRenderBacking(color: Color): Color = color.copy(alpha = 1f)
 
 private fun transparentAppSurfaces(base: ColorScheme): ColorScheme = base.copy(
     background = Color.Transparent,

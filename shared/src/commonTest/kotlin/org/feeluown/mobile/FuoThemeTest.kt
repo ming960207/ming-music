@@ -8,6 +8,14 @@ import kotlin.test.assertTrue
 
 class FuoThemeTest {
     @Test
+    fun transparentUiColorGetsOpaqueFrameBackingWithoutChangingRgb() {
+        val source = Color(0x80345678)
+        assertEquals(Color(0xFF345678), opaqueRenderBacking(source))
+        assertEquals(Color.White, opaqueRenderBacking(Color.White))
+        assertEquals(Color.Black, opaqueRenderBacking(Color.Transparent))
+    }
+
+    @Test
     fun fixedPresetsGenerateAccessibleLightAndDarkSchemes() {
         ThemeColorScheme.entries
             .filter { it != ThemeColorScheme.Dynamic }
