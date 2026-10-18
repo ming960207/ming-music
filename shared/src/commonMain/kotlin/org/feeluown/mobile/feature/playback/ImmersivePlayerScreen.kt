@@ -118,6 +118,7 @@ internal fun ImmersivePlayerScreen(
             ) {
                 val landscape = maxWidth > maxHeight
                 val compactLandscape = landscape && maxHeight < 520.dp
+                val compactPortrait = !landscape && maxHeight < 720.dp
                 Column(modifier = Modifier.fillMaxSize()) {
                     ImmersivePlaybackHeader(
                         track = state.currentTrack,
@@ -203,7 +204,7 @@ internal fun ImmersivePlayerScreen(
                             RuntimePlayerTransport(
                                 playbackSession = playbackSession,
                                 state = state,
-                                dense = maxHeight < 720.dp,
+                                dense = compactPortrait,
                             )
                         }
                     }
