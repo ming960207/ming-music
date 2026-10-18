@@ -2,6 +2,8 @@ package org.feeluown.mobile
 
 import android.annotation.SuppressLint
 import android.util.Log
+import android.view.View
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.ConsoleMessage
 import android.webkit.WebResourceError
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Text
 import androidx.compose.material3.Button
 import androidx.compose.ui.graphics.Color
@@ -31,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +45,7 @@ import org.json.JSONObject
 private const val STAGE_ASSET_PATH = "folia_stage/index.html"
 private const val STAGE_BASE_URL = "https://appassets.androidplatform.net/folia_stage/"
 private const val STAGE_LOG = "MingFoliaStage"
+private const val STAGE_BUILD = "VISUAL-R3"
 
 private fun foliaStagePayload(state: PlaybackState, lyricOffsetMs: Long): String {
     val lines = JSONArray()
@@ -91,6 +96,9 @@ internal actual fun FoliaWebStage(
     val webView = remember(context, retries) { runCatching { WebView(context) }.getOrNull() }
     var pageReady by remember(webView) { mutableStateOf(false) }
     var errorMessage by remember(webView) { mutableStateOf<String?>(null) }
+    var canvasInfo by remember(webView) { mutableStateOf("无首帧信息") }
+    var stageMetrics by remember(webView) { mutableStateOf("等待 JS 采样") }
+    var showDiagnosticDetails by rememberSaveable { mutableStateOf(true) }
 
     if (webView == null || html.isFailure) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -105,6 +113,10 @@ internal actual fun FoliaWebStage(
 
     DisposableEffect(webView, html) {
         webView.setBackgroundColor(AndroidColor.rgb(8, 15, 32))
+        // This view is embedded in a Compose hierarchy. OEM hybrid GPU
+        // compositors can leave WebView's surface blank while JavaScript runs;
+        // software drawing makes this diagnostic build deterministic.
+        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = false
@@ -150,8 +162,14 @@ internal actual fun FoliaWebStage(
                 if (request?.isForMainFrame == true) fail("HTML: " + error?.description)
             }
 
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                fail("WebView 渲染进程退出; crash=" + (detail?.didCrash() ?: false))
+                return true
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
-                Log.i(STAGE_LOG, "HTML loaded: " + url + "; waiting for Canvas handshake")
+                Log.i(STAGE_LOG, "HTML loaded: " + url + "; waiting for Canvas handshake; attached=" +
+                    webView.isAttachedToWindow + " size=" + webView.width + "x" + webView.height)
                 view?.evaluateJavascript("typeof window.mingFolia === 'object'") { result ->
                     if (result != "true") fail("HTML 已加载但舞台脚本未初始化")
                 }
@@ -165,10 +183,21 @@ internal actual fun FoliaWebStage(
             fun stageReady(width: Int, height: Int) {
                 webView.post {
                     if (width > 0 && height > 0) {
-                        Log.i(STAGE_LOG, "Canvas first frame: " + width + "x" + height)
+                        canvasInfo = "Canvas " + width + "x" + height
+                        Log.i(STAGE_LOG, "Canvas first frame: " + width + "x" + height +
+                            "; WebView attached=" + webView.isAttachedToWindow +
+                            " measured=" + webView.width + "x" + webView.height)
                         pageReady = true
                         errorMessage = null
                     }
+                }
+            }
+
+            @JavascriptInterface
+            fun stageMetrics(metrics: String) {
+                webView.post {
+                    stageMetrics = metrics.take(220)
+                    Log.i(STAGE_LOG, "Canvas status: " + stageMetrics)
                 }
             }
 
@@ -177,10 +206,18 @@ internal actual fun FoliaWebStage(
         }, "MingMusicStage")
         // Load actual bytes from the installed APK. Do not rely on file://
         // resource handling or an unverified onPageFinished callback.
-        webView.loadDataWithBaseURL(
-            STAGE_BASE_URL, html.getOrThrow(), "text/html", "UTF-8", null,
-        )
+        // Start loading only after AndroidView has a window attachment; loading
+        // detached WebViews was not sufficient to guarantee a visible surface.
+        val loadStage = Runnable {
+            Log.i(STAGE_LOG, "Starting stage on attached=" + webView.isAttachedToWindow +
+                " size=" + webView.width + "x" + webView.height)
+            webView.loadDataWithBaseURL(
+                STAGE_BASE_URL, html.getOrThrow(), "text/html", "UTF-8", null,
+            )
+        }
+        webView.post(loadStage)
         onDispose {
+            webView.removeCallbacks(loadStage)
             webView.removeJavascriptInterface("MingMusicStage")
             webView.stopLoading()
             webView.destroy()
@@ -227,6 +264,25 @@ internal actual fun FoliaWebStage(
     Box(modifier.fillMaxSize()) {
         key(webView) {
             AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
+        }
+        // Native Compose overlay is intentionally independent of WebView's
+        // bitmap: if this marker is missing, the installed APK isn't this build.
+        Column(
+            modifier = Modifier.align(Alignment.TopCenter)
+                .padding(top = 108.dp)
+                .background(Color(0xD9132747))
+                .clickable { showDiagnosticDetails = !showDiagnosticDetails }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                STAGE_BUILD + " · " + (if (pageReady) "JS首帧已收到" else "等待JS首帧"),
+                color = Color.White,
+            )
+            if (showDiagnosticDetails) {
+                Text(canvasInfo + " / View " + webView.width + "x" + webView.height, color = Color(0xFFB9E5FF))
+                Text(stageMetrics.take(160), color = Color(0xFFB9E5FF))
+            }
         }
         if (!pageReady) {
             Column(
