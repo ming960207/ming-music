@@ -75,7 +75,7 @@ fun FuoTheme(
             // Android window itself must remain opaque. Passing the transparent UI surface
             // caused incomplete frame clearing (black gaps and stale text/card trails) on
             // some hardware renderers after animated full-screen transitions.
-            platformWindowSurfaceEffect(opaqueRenderBacking(animatedBaseColorScheme.background))
+            platformWindowSurfaceEffect(opaqueRenderBacking(targetColorScheme.background))
             content()
         }
     }
