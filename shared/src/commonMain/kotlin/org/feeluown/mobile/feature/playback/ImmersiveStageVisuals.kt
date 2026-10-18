@@ -82,7 +82,7 @@ internal fun ImmersiveStageBackdrop(image: ImageBitmap?, accent: Color, clock: S
             val radius = size.maxDimension * 0.72f
             val warm = lerp(accent, Color(0xFFF4B77D), 0.30f)
             val brushes = listOf(accent, warm, lerp(accent, Color(0xFF445AAD), 0.36f)).map { color ->
-                Brush.radialGradient(listOf(color.copy(alpha = if (style == ImmersiveStageStyle.Focus) 0.16f else 0.30f), Color.Transparent), center = Offset.Zero, radius = radius)
+                Brush.radialGradient(listOf(color.copy(alpha = if (style == ImmersiveStageStyle.Focus || style == ImmersiveStageStyle.Glyph) 0.16f else 0.30f), Color.Transparent), center = Offset.Zero, radius = radius)
             }
             onDrawBehind {
                 val phase = clock.value / 14f

@@ -148,6 +148,15 @@ internal fun ImmersivePlayerScreen(
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                 val landscape = maxWidth > maxHeight
                 val stageHeight = maxHeight
+                if (style == ImmersiveStageStyle.Glyph && lyrics.isNotEmpty()) {
+                    // The glyph canvas is independent of chrome height, so controls cannot reshuffle letters.
+                    ImmersiveGlyphStage(lyrics, alignedPosition, clock, state.currentTrack?.id, accent,
+                        presentation.lyricFontSize, motionEnabled, extrasVisible,
+                        onSeek = { time -> immersiveLyricSeekTarget(time, offset, state.durationMs)?.let(presentation::seekTo) },
+                        onBlankTap = { chromeVisible = !chromeVisible },
+                        modifier = Modifier.fillMaxSize().padding(horizontal = if (landscape) 28.dp else 18.dp)
+                            .padding(top = if (landscape) 60.dp else 108.dp, bottom = if (landscape) 128.dp else 148.dp))
+                }
                 Column(Modifier.fillMaxSize().padding(horizontal = if (landscape) 24.dp else 12.dp)) {
                     AnimatedVisibility(chromeVisible) {
                     if (landscape) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -162,6 +171,7 @@ internal fun ImmersivePlayerScreen(
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         when {
+                            style == ImmersiveStageStyle.Glyph && lyrics.isNotEmpty() -> Unit
                             lyrics.isEmpty() -> Column(Modifier.fillMaxSize()) {
                                 StageTrackStrip(state, compact = false)
                                 StageNoLyrics(onExit, Modifier.weight(1f))

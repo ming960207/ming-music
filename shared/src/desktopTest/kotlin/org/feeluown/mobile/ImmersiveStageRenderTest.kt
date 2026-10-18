@@ -48,7 +48,9 @@ class ImmersiveStageRenderTest {
                                 if (style == ImmersiveStageStyle.Vinyl) {
                                     ImmersiveVinylCover(null, accent, clock, Modifier.size(if (height > width) 230.dp else 120.dp))
                                 }
-                                if (style.foliaStyle != null) FoliaWordStage(lyrics, position, "fixture", style.foliaStyle,
+                                if (style == ImmersiveStageStyle.Glyph) ImmersiveGlyphStage(lyrics, position, clock, "fixture",
+                                    accent, LyricFontSize.Medium, true, true, {}, {}, Modifier.weight(1f).fillMaxWidth())
+                                else if (style.foliaStyle != null) FoliaWordStage(lyrics, position, "fixture", style.foliaStyle,
                                     accent, false, true, LyricFontSize.Medium, {}, Modifier.weight(1f).fillMaxWidth())
                                 else if (style == ImmersiveStageStyle.Focus) StageFocusLyrics(lyrics, position, true, width > height,
                                     LyricFontSize.Medium, accent, false, Modifier.weight(1f), {})
