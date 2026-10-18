@@ -35,7 +35,7 @@ class ImmersiveStageRenderTest {
         val clock = mutableStateOf(8f)
         for ((width, height) in listOf(430 to 820, 960 to 480)) {
             for (style in ImmersiveStageStyle.entries) {
-                ImageComposeScene(width = width, height = height) {
+                val scene = ImageComposeScene(width = width, height = height) {
                     MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
                         Box(Modifier.fillMaxSize()) {
                             if (style.foliaStyle != null) FoliaMovingBackdrop(null, accent, style.foliaStyle, clock)
@@ -54,14 +54,21 @@ class ImmersiveStageRenderTest {
                             }
                         }
                     }
-                }.use { scene ->
+                }
+                try {
                     repeat(8) { scene.render(it * 200_000_000L).close() }
-                    val data = scene.render(2_000_000_000L).encodeToData()!!
-                    val file = File("build/stage-previews/${style.name}-$width.png")
-                    file.parentFile.mkdirs()
-                    file.writeBytes(data.bytes)
-                    assertTrue(file.length() > 5_000, "Stage should render visible content at $width x $height")
-                    data.close()
+                    val image = scene.render(2_000_000_000L)
+                    try {
+                        val data = image.encodeToData()!!
+                        try {
+                            val file = File("build/stage-previews/${style.name}-$width.png")
+                            file.parentFile.mkdirs()
+                            file.writeBytes(data.bytes)
+                            assertTrue(file.length() > 5_000, "Stage should render visible content at $width x $height")
+                        } finally { data.close() }
+                    } finally { image.close() }
+                } finally {
+                    scene.close()
                 }
             }
         }

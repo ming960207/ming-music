@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
@@ -437,6 +438,7 @@ internal class AndroidAppUpdateController(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun saveApkToMediaStore(apkFile: File, manifest: AppUpdateManifest) {
         val resolver = appContext.contentResolver
         val values = ContentValues().apply {
