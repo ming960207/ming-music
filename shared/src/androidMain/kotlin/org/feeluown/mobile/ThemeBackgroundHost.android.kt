@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -47,7 +48,11 @@ internal actual fun ThemeBackgroundHost(content: @Composable () -> Unit) {
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    // Always clear the complete drawing area with a solid background before wallpaper,
+    // translucent cards and animated pages. Without an opaque first pass, GPU partial
+    // updates can retain previous frames as duplicate text or dark transparent holes.
+    val fallbackColor = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 1f)
+    Box(Modifier.fillMaxSize().background(fallbackColor)) {
         bitmap?.let {
             Image(
                 bitmap = it.asImageBitmap(),
