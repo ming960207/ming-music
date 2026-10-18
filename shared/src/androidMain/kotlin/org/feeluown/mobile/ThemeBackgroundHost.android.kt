@@ -51,7 +51,7 @@ internal actual fun ThemeBackgroundHost(content: @Composable () -> Unit) {
     // Always clear the complete drawing area with a solid background before wallpaper,
     // translucent cards and animated pages. Without an opaque first pass, GPU partial
     // updates can retain previous frames as duplicate text or dark transparent holes.
-    val fallbackColor = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 1f)
+    val fallbackColor = opaqueRenderBacking(MaterialTheme.colorScheme.surfaceContainerLowest)
     Box(Modifier.fillMaxSize().background(fallbackColor)) {
         bitmap?.let {
             Image(
