@@ -50,8 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
 import org.feeluown.mobile.playback.api.PlaybackSession
 import kotlin.math.abs
 
@@ -119,6 +117,7 @@ internal fun ImmersivePlayerScreen(
                     .navigationBarsPadding(),
             ) {
                 val landscape = maxWidth > maxHeight
+                val compactLandscape = landscape && maxHeight < 520.dp
                 Column(modifier = Modifier.fillMaxSize()) {
                     ImmersivePlaybackHeader(
                         track = state.currentTrack,
@@ -141,8 +140,24 @@ internal fun ImmersivePlayerScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(16.dp),
                             ) {
-                                ImmersiveAlbumCover(state, modifier = Modifier.widthIn(max = 240.dp).fillMaxWidth().aspectRatio(1f))
-                                ImmersiveTrackTitle(state.currentTrack)
+                                if (compactLandscape) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        ImmersiveAlbumCover(state, modifier = Modifier.size(72.dp))
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            ImmersiveTrackTitle(state.currentTrack)
+                                        }
+                                    }
+                                } else {
+                                    ImmersiveAlbumCover(
+                                        state,
+                                        modifier = Modifier.widthIn(max = 220.dp).fillMaxWidth().aspectRatio(1f),
+                                    )
+                                    ImmersiveTrackTitle(state.currentTrack)
+                                }
                                 RuntimePlayerTransport(
                                     playbackSession = playbackSession,
                                     state = state,
