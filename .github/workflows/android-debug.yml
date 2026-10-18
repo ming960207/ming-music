@@ -24,6 +24,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build Android debug APK
         run: ./gradlew :androidApp:assembleDebug --stacktrace
+      - name: Verify offline visual stage is packaged in APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=$(find androidApp/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$apk"
+          unzip -Z1 "$apk" | grep -Fx 'assets/folia_stage/index.html'
+          unzip -p "$apk" 'assets/folia_stage/index.html' | grep -q 'stageReady'
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
