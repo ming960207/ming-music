@@ -91,6 +91,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -410,7 +411,8 @@ internal fun StageFocusLyrics(lyrics: List<LyricLine>, position: State<Long>, ex
                     if (current == null) Text("静候第一句", color = Color.White.copy(alpha = 0.35f), style = MaterialTheme.typography.headlineSmall)
                     else StageLyricText(current, true, position, MaterialTheme.typography.displaySmall.copy(
                         fontSize = size.sp, lineHeight = (size * 1.45f).sp, fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center), accent, extras)
+                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                        lineBreak = LineBreak.Heading.copy(strategy = LineBreak.Strategy.Balanced)), accent, extras)
                 }
             }
         }
