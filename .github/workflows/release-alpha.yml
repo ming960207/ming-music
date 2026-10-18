@@ -24,7 +24,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  folia-stage:
+    uses: ./.github/workflows/folia-stage.yml
+
   release:
+    needs: folia-stage
     if: github.repository == 'ming960207/ming-music' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -90,6 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           cp androidApp/build/outputs/apk/release/androidApp-release.apk "$APK_NAME"
+          python3 tools/ci/verify_folia_bundle.py "$APK_NAME"
           AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt | sort -V | tail -1)
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
           previous=()

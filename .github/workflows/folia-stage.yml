@@ -1,0 +1,46 @@
+name: Folia Stage
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web/folia-stage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+      - run: pnpm install --frozen-lockfile
+      - name: Check original source digests and reproducible offline bundle
+        run: |
+          pnpm build
+          git diff --exit-code -- ../../shared/src/commonMain/composeResources/files/folia-stage.html
+          pnpm test
+      - name: Install renderer test browser and CJK fonts
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk ffmpeg
+      - name: Verify the original Folia WebGL renderer offline
+        env:
+          FOLIA_RENDER_MOTION: '1'
+        run: pnpm test:render
+      - name: Encode actual Folia choreography preview
+        run: ffmpeg -hide_banner -loglevel error -y -framerate 24 -i ../../build/folia-stage-motion/frame-%03d.png -c:v libx264 -crf 18 -pix_fmt yuv420p ../../build/folia-stage-previews/Folia-motion.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: folia-stage-previews
+          path: build/folia-stage-previews/
+          if-no-files-found: error

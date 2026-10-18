@@ -1,7 +1,7 @@
 package org.feeluown.mobile
 
 internal enum class ImmersiveStageStyle(val title: String, val subtitle: String, val foliaStyle: FoliaStageStyle? = null) {
-    Glyph("字境", "字随音落，散入画面"),
+    Glyph("字境", "Folia 字形与纵横排版"),
     Classic("经典", "随词句渐入", FoliaStageStyle.Classic),
     Light("流光", "字句与光点交织", FoliaStageStyle.Light),
     Poetry("浮名", "前后句之间的留白", FoliaStageStyle.Poetry),

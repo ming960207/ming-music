@@ -11,6 +11,9 @@ permissions:
   contents: read
 
 jobs:
+  folia-stage:
+    uses: ./.github/workflows/folia-stage.yml
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -25,6 +28,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build Android debug APK
         run: ./gradlew :androidApp:assembleDebug --stacktrace
+      - name: Verify offline Folia asset in APK
+        run: |
+          python3 -m unittest discover -s tools/ci -p test_verify_folia_bundle.py
+          python3 tools/ci/verify_folia_bundle.py androidApp/build/outputs/apk/debug/androidApp-debug.apk
       - name: Verify immersive stage timing and architecture
         run: ./gradlew :shared:testAndroidHostTest --tests '*Immersive*' --tests '*LyricsParserTest' --tests '*FoliaPerformanceTest' --tests '*FuoThemeTest' checkArchitectureBoundaries :androidApp:lintDebug --stacktrace
       - name: Upload APK
@@ -49,16 +56,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends fonts-noto-cjk
           fc-match 'sans-serif:lang=zh'
-          command -v ffmpeg >/dev/null || sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Render native Compose stage previews
         run: ./gradlew :shared:desktopTest --tests 'org.feeluown.mobile.ImmersiveStageRenderTest' -Djava.awt.headless=true --stacktrace
-      - name: Encode native glyph choreography preview
-        run: ffmpeg -hide_banner -loglevel error -y -framerate 24 -i shared/build/stage-motion/frame-%03d.png -c:v libx264 -crf 18 -pix_fmt yuv420p shared/build/stage-previews/Glyph-motion.mp4
       - name: Upload phone and landscape previews
         uses: actions/upload-artifact@v4
         with:
           name: immersive-stage-previews
           path: |
             shared/build/stage-previews/*.png
-            shared/build/stage-previews/*.mp4
           if-no-files-found: error

@@ -1,0 +1,19 @@
+{
+  "name": "ming-music-folia-stage",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:render": "node test/render.mjs"
+  },
+  "dependencies": {
+    "pixi.js": "8.21.0",
+    "@chenglou/pretext": "0.0.9"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "playwright": "1.58.2"
+  }
+}

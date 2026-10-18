@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; worker-src blob:; base-uri 'none'; form-action 'none'">
+<title>ming-folia-loading</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#edf1e7;font-family:serif;touch-action:manipulation}
+canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+#subtitle{position:absolute;bottom:8%;left:9%;right:9%;text-align:center;pointer-events:none;white-space:pre-line;line-height:1.7;font-size:14px;color:#d7dfce99}
+#status{position:absolute;top:44%;width:100%;text-align:center;color:#d7dfce99;font-size:16px}
+details{position:absolute;bottom:4px;right:12px;max-width:85%;font:10px/1.5 sans-serif;color:#d7dfce88;z-index:2}
+details[open]{inset:8%;max-width:unset;padding:20px;background:#111711fa;overflow:auto;color:#dce2d5;font-size:12px}
+summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}button{background:transparent;color:inherit;border:1px solid #88908077;padding:5px 10px}
+</style>
+</head>
+<body>
+<div id="status" role="status">舞台正在加载</div>
+<div id="subtitle" aria-live="polite"></div>
+<details><summary>Folia · 源码与许可证</summary>
+<p>Folia © 2026 chthollyphile · AGPL-3.0<br>原始源码版本：UPSTREAM_COMMIT</p>
+<p>本地离线组件直接使用 Folia 的 lyricWindow、lineWrap、windowSlots、windowGeometry 和 wordStyle 原始源码；播放器桥接由 MingMusic 提供。</p>
+<button id="source">获取本版本完整源码</button>
+<pre><!-- LICENSES --></pre></details>
+<script>/* STAGE_BUNDLE */</script>
+</body></html>

@@ -149,9 +149,9 @@ internal fun ImmersivePlayerScreen(
                 val landscape = maxWidth > maxHeight
                 val stageHeight = maxHeight
                 if (style == ImmersiveStageStyle.Glyph && lyrics.isNotEmpty()) {
-                    // The glyph canvas is independent of chrome height, so controls cannot reshuffle letters.
+                    // Keep Folia's viewport independent of chrome visibility to preserve its composition.
                     ImmersiveGlyphStage(lyrics, alignedPosition, state.currentTrack?.id, accent,
-                        presentation.lyricFontSize, motionEnabled, extrasVisible,
+                        presentation.lyricFontSize, motionEnabled, extrasVisible, playing = state.status == PlayerStatus.Playing,
                         onSeek = { time -> immersiveLyricSeekTarget(time, offset, state.durationMs)?.let(presentation::seekTo) },
                         onBlankTap = { chromeVisible = !chromeVisible },
                         modifier = Modifier.fillMaxSize().padding(horizontal = if (landscape) 28.dp else 18.dp)

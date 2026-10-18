@@ -16,6 +16,7 @@ kotlin {
         namespace = "org.feeluown.mobile.shared"
         compileSdk = libs.versions.androidCompileSdk.get().toInt()
         minSdk = libs.versions.androidMinSdk.get().toInt()
+        androidResources.enable = true
         withHostTest {}
 
         compilerOptions {
@@ -69,12 +70,14 @@ kotlin {
             api(project(":feature:home"))
             api(project(":feature:playback"))
             implementation(libs.compose.runtime)
+            implementation(compose.components.resources)
             implementation(libs.compose.foundation)
             implementation(libs.compose.animation)
             implementation(libs.compose.material3.expressive)
             implementation(libs.compose.material3.adaptive.navigation3)
             implementation(libs.material.kolor)
             implementation(libs.compose.material.icons.extended)
+            implementation("dev.nucleusframework:composewebview:1.0.3")
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.androidx.lifecycle.runtime.compose)
@@ -90,9 +93,6 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
-        }
-        desktopMain.dependencies {
-            implementation("dev.nucleusframework:composewebview:1.0.3")
         }
         desktopTest.dependencies {
             implementation(compose.desktop.currentOs)
@@ -112,6 +112,11 @@ kotlin {
             implementation(libs.ktor.client.darwin)
         }
     }
+}
+
+compose.resources {
+    packageOfResClass = "org.feeluown.mobile.resources"
+    generateResClass = always
 }
 
 val p4RequiredContractFiles = listOf(

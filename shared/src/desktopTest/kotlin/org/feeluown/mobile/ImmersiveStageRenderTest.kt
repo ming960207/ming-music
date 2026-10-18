@@ -37,7 +37,8 @@ class ImmersiveStageRenderTest {
         val position = mutableStateOf(18_800L)
         val clock = mutableStateOf(8f)
         for ((width, height) in listOf(430 to 820, 960 to 480)) {
-            for (style in ImmersiveStageStyle.entries) {
+            // Folia's WebView is verified by web/folia-stage/test/render.mjs in a real WebGL engine.
+            for (style in ImmersiveStageStyle.entries.filter { it != ImmersiveStageStyle.Glyph }) {
                 val scene = ImageComposeScene(width = width, height = height) {
                     MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
                         CompositionLocalProvider(LocalContentColor provides Color.White) {
@@ -49,9 +50,7 @@ class ImmersiveStageRenderTest {
                                 if (style == ImmersiveStageStyle.Vinyl) {
                                     ImmersiveVinylCover(null, accent, clock, Modifier.size(if (height > width) 230.dp else 120.dp))
                                 }
-                                if (style == ImmersiveStageStyle.Glyph) ImmersiveGlyphStage(lyrics, position, "fixture",
-                                    accent, LyricFontSize.Medium, true, true, {}, {}, Modifier.weight(1f).fillMaxWidth())
-                                else if (style.foliaStyle != null) FoliaWordStage(lyrics, position, "fixture", style.foliaStyle,
+                                if (style.foliaStyle != null) FoliaWordStage(lyrics, position, "fixture", style.foliaStyle,
                                     accent, false, true, LyricFontSize.Medium, {}, Modifier.weight(1f).fillMaxWidth())
                                 else if (style == ImmersiveStageStyle.Focus) StageFocusLyrics(lyrics, position, true, width > height,
                                     LyricFontSize.Medium, accent, false, Modifier.weight(1f), {})
@@ -81,38 +80,4 @@ class ImmersiveStageRenderTest {
         }
     }
 
-    @Test
-    fun renderGlyphMotionFromTheActualMusicTimeDriver() {
-        val position = mutableStateOf(15_000L)
-        val clock = mutableStateOf(8f)
-        val scene = ImageComposeScene(width = 430, height = 820) {
-            MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
-                CompositionLocalProvider(LocalContentColor provides Color.White) {
-                    Box(Modifier.fillMaxSize()) {
-                        ImmersiveStageBackdrop(null, accent, clock, ImmersiveStageStyle.Glyph)
-                        Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("晚风与星光 · 字境", Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
-                            ImmersiveGlyphStage(lyrics, position, "fixture", accent, LyricFontSize.Medium,
-                                true, true, {}, {}, Modifier.weight(1f).fillMaxWidth())
-                        }
-                    }
-                }
-            }
-        }
-        val directory = File("build/stage-motion").apply { mkdirs() }
-        try {
-            repeat(4) { scene.render(it * 200_000_000L).close() }
-            repeat(180) { frame ->
-                position.value = 15_000L + frame * 1_000L / 24
-                clock.value = 8f + frame / 24f
-                val image = scene.render(1_000_000_000L + frame * 1_000_000_000L / 24)
-                try {
-                    val data = image.encodeToData()!!
-                    try { File(directory, "frame-${frame.toString().padStart(3, '0')}.png").writeBytes(data.bytes) }
-                    finally { data.close() }
-                } finally { image.close() }
-            }
-        } finally { scene.close() }
-        assertTrue(directory.listFiles { file -> file.extension == "png" }!!.size >= 180)
-    }
 }
