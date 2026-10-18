@@ -8,12 +8,11 @@ import kotlin.test.assertTrue
 
 class FuoThemeTest {
     @Test
-    fun visualBaseThemeUsesOpaqueBackgroundInLightAndDarkSchemes() {
-        listOf(false, true).forEach { dark ->
-            val palette = expressiveColorScheme(Color(0xFF6750A4), darkTheme = dark)
-            assertEquals(1f, palette.background.copy(alpha = 1f).alpha)
-            assertEquals(1f, palette.surfaceContainerLowest.copy(alpha = 1f).alpha)
-        }
+    fun transparentUiColorGetsOpaqueFrameBackingWithoutChangingRgb() {
+        val source = Color(0x80345678)
+        assertEquals(Color(0xFF345678), opaqueRenderBacking(source))
+        assertEquals(Color.White, opaqueRenderBacking(Color.White))
+        assertEquals(Color.Black, opaqueRenderBacking(Color.Transparent))
     }
 
     @Test
