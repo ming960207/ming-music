@@ -6,8 +6,8 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
+import java.net.URI
 import android.net.http.SslError
-import android.os.Build
 import android.util.Log
 import android.view.View
 import android.webkit.WebResourceError
@@ -44,7 +44,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -100,7 +99,7 @@ class ProviderWebLoginActivity : ComponentActivity() {
             // Authentication endpoints compare UA, Client Hints and Chromium version.
             // Use the current Android System WebView identity rather than a spoofed
             // old Mac/Chrome 124 UA (and never inject a second User-Agent header).
-            settings.userAgentString = settings.userAgentString
+            // Keep the platform-provided UA unchanged.
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = false
             settings.loadsImagesAutomatically = true
@@ -446,9 +445,10 @@ class ProviderWebLoginActivity : ComponentActivity() {
         private const val LOG_TAG = "MingProviderWebLogin"
         // Reject malformed URLs early; credential pages must use HTTPS.
         internal fun isWebLoginUrlAllowed(url: String): Boolean {
-            val uri = runCatching { Uri.parse(url.trim()) }.getOrNull() ?: return false
+            val uri = runCatching { URI(url.trim()) }.getOrNull() ?: return false
             return uri.scheme.equals("https", ignoreCase = true) &&
-                !uri.host.isNullOrBlank()
+                !uri.host.isNullOrBlank() &&
+                uri.userInfo == null
         }
 
         fun createIntent(context: Context, provider: ProviderInfo): Intent {
