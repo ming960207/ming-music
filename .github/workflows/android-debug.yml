@@ -28,6 +28,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build Android debug APK
         run: ./gradlew :androidApp:assembleDebug --stacktrace
+      - name: Test provider web login URL safety
+        run: ./gradlew :androidApp:testDebugUnitTest --tests 'org.feeluown.mobile.ProviderWebLoginUrlTest' --stacktrace
       - name: Verify offline Folia asset in APK
         run: |
           python3 -m unittest discover -s tools/ci -p test_verify_folia_bundle.py
