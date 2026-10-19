@@ -4,21 +4,37 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.net.Uri
+import android.net.http.SslError
+import android.os.Build
+import android.util.Log
+import android.view.View
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.SslErrorHandler
 import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import android.widget.FrameLayout
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,9 +44,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -47,6 +65,10 @@ class ProviderWebLoginActivity : ComponentActivity() {
     private lateinit var cookieKeyGroups: List<List<String>>
     private lateinit var webView: WebView
     private var statusMessage by mutableStateOf("")
+    private var pageError by mutableStateOf<String?>(null)
+    private var pageLoading by mutableStateOf(false)
+    private var startedLoading = false
+    private var initialLoadScheduled = false
 
     @SuppressLint("SetJavaScriptEnabled") // 提供方登录页完成认证需要 JavaScript。
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,24 +86,90 @@ class ProviderWebLoginActivity : ComponentActivity() {
         statusMessage = getString(R.string.provider_login_cookie_hint)
 
         cookieManager().setAcceptCookie(true)
-        val userAgent = loginUserAgent()
-        val useMobileViewport = providerId == "bilibili"
+        if (!isWebLoginUrlAllowed(loginUrl)) {
+            statusMessage = "无效的登录网址：只允许 HTTPS 网页"
+            pageError = statusMessage
+        }
         webView = WebView(this).apply {
+            setBackgroundColor(android.graphics.Color.WHITE)
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.javaScriptCanOpenWindowsAutomatically = true
-            settings.userAgentString = userAgent
-            settings.useWideViewPort = !useMobileViewport
-            settings.loadWithOverviewMode = !useMobileViewport
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            // Authentication endpoints compare UA, Client Hints and Chromium version.
+            // Use the current Android System WebView identity rather than a spoofed
+            // old Mac/Chrome 124 UA (and never inject a second User-Agent header).
+            settings.userAgentString = settings.userAgentString
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = false
+            settings.loadsImagesAutomatically = true
             cookieManager().setAcceptThirdPartyCookies(this, true)
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                    if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                        Log.w(LOG_TAG, "Web login JS (" + providerId + "): " + message.message())
+                    }
+                    return true
+                }
+            }
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    pageLoading = true
+                    pageError = null
+                }
+
                 override fun onPageFinished(view: WebView, url: String?) {
-                    super.onPageFinished(view, url)
+                    pageLoading = false
                     cookieManager().flush()
                     finishWithCookies(url, auto = true)
                 }
+
+                override fun onReceivedError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    error: WebResourceError,
+                ) {
+                    if (request.isForMainFrame) {
+                        pageLoading = false
+                        pageError = "无法打开网页登录页：" + error.description.toString() +
+                            "（" + error.errorCode + "）"
+                        Log.e(LOG_TAG, "Web login load failure provider=" + providerId +
+                            " code=" + error.errorCode + " host=" + request.url.host)
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    errorResponse: WebResourceResponse,
+                ) {
+                    if (request.isForMainFrame && errorResponse.statusCode >= 400) {
+                        pageLoading = false
+                        pageError = "音源网站返回 HTTP " + errorResponse.statusCode +
+                            "。可能限制了内置浏览器登录。"
+                        Log.w(LOG_TAG, "Web login HTTP error provider=" + providerId +
+                            " code=" + errorResponse.statusCode + " host=" + request.url.host)
+                    }
+                }
+
+                override fun onReceivedSslError(
+                    view: WebView,
+                    handler: SslErrorHandler,
+                    error: SslError,
+                ) {
+                    handler.cancel() // Never bypass certificate validation for accounts.
+                    pageLoading = false
+                    pageError = "网页安全证书验证失败，请检查系统时间、网络或 VPN 设置。"
+                    Log.e(LOG_TAG, "Web login SSL error provider=" + providerId +
+                        " primaryError=" + error.primaryError)
+                }
             }
+            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) = scheduleFirstLoad()
+                override fun onViewDetachedFromWindow(v: View) = Unit
+            })
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleFirstLoad() }
         }
 
         setContent {
@@ -124,22 +212,69 @@ class ProviderWebLoginActivity : ComponentActivity() {
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
+                        if (pageLoading) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.padding(2.dp))
+                                Text("正在加载 " + providerName + " 登录网页…")
+                            }
+                        }
+                        pageError?.let { error ->
+                            Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Text(error, color = MaterialTheme.colorScheme.onErrorContainer)
+                                    TextButton(onClick = { retryLoginPage() }) {
+                                        Text("重试网页登录")
+                                    }
+                                }
+                            }
+                        }
                         AndroidView(
-                            factory = { webView },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
+                            factory = { viewContext ->
+                                FrameLayout(viewContext).apply {
+                                    setBackgroundColor(android.graphics.Color.WHITE)
+                                    addView(webView, FrameLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ))
+                                }
+                            },
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
                         )
                     }
                 }
             }
         }
         configureSystemBars(webLoginThemeMode())
-        webView.loadUrl(loginUrl, mapOf("User-Agent" to userAgent))
     }
 
-    private fun loginUserAgent(): String {
-        return if (providerId == "bilibili") MOBILE_USER_AGENT else DESKTOP_USER_AGENT
+    private fun scheduleFirstLoad() {
+        if (initialLoadScheduled || startedLoading || pageError != null ||
+            !::webView.isInitialized || !webView.isAttachedToWindow ||
+            webView.width <= 0 || webView.height <= 0) return
+        initialLoadScheduled = true
+        webView.post {
+            initialLoadScheduled = false
+            if (!startedLoading && webView.isAttachedToWindow &&
+                webView.width > 0 && webView.height > 0) {
+                startedLoading = true
+                pageLoading = true
+                Log.i(LOG_TAG, "Web login starts: provider=" + providerId +
+                    " host=" + Uri.parse(loginUrl).host)
+                webView.loadUrl(loginUrl)
+            }
+        }
+    }
+
+    private fun retryLoginPage() {
+        if (!isWebLoginUrlAllowed(loginUrl)) return
+        pageError = null
+        pageLoading = true
+        startedLoading = true
+        webView.loadUrl(loginUrl)
     }
 
     private fun webLoginThemeMode(): ThemeMode {
@@ -308,12 +443,13 @@ class ProviderWebLoginActivity : ComponentActivity() {
         private const val PREFS_NAME = "fuo_settings"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_THEME_COLOR_SCHEME = "theme_color_scheme"
-        private const val DESKTOP_USER_AGENT =
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        private const val MOBILE_USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        private const val LOG_TAG = "MingProviderWebLogin"
+        // Reject malformed URLs early; credential pages must use HTTPS.
+        internal fun isWebLoginUrlAllowed(url: String): Boolean {
+            val uri = runCatching { Uri.parse(url.trim()) }.getOrNull() ?: return false
+            return uri.scheme.equals("https", ignoreCase = true) &&
+                !uri.host.isNullOrBlank()
+        }
 
         fun createIntent(context: Context, provider: ProviderInfo): Intent {
             val loginConfig = requireNotNull(provider.loginConfig)
