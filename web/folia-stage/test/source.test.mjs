@@ -17,6 +17,9 @@ test('the shipped stage is offline and includes its copyright and source offer',
   const html = await readFile('../../shared/src/commonMain/composeResources/files/folia-stage.html', 'utf8');
   assert.ok(html.includes('GNU AFFERO GENERAL PUBLIC LICENSE'));
   assert.ok(html.includes('chthollyphile'));
+  assert.ok(html.includes('<template id="stage-license-notices">'));
+  assert.ok(!html.includes('Folia · 源码与许可证'));
+  assert.ok(!html.includes('<details>'));
   assert.ok(html.includes('connect-src &#39;none&#39;') || html.includes("connect-src 'none'"));
   assert.doesNotMatch(html, /<(script|link)[^>]+(?:src|href)=["']https?:/i);
   assert.ok(html.includes('window.MingFoliaStage') || html.includes('.MingFoliaStage='));
