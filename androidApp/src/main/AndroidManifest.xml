@@ -40,13 +40,6 @@
             android:name="io.github.andrealtb.lockscreenlyrics.OPLUS_MEDIA_HISTORY"
             android:value="true" />
         <activity
-            android:name=".LockscreenFoliaActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:showWhenLocked="true"
-            android:configChanges="orientation|screenSize|uiMode"
-            android:theme="@style/AppTheme" />
-        <activity
             android:name=".MainActivity"
             android:configChanges="uiMode|orientation|screenSize"
             android:exported="true"
