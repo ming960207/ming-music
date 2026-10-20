@@ -26,14 +26,8 @@ internal actual fun FoliaSystemBarsEffect() {
         }
         found
     }
-    // Keep the foreground lyric stage over Keyguard only after explicit opt-in.
-    // Never wake the display, dismiss authentication, or start an activity in background.
-    val coverKeyguard = remember(context) {
-        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1 &&
-            context.getSharedPreferences("ming_immersive_lockscreen", Context.MODE_PRIVATE)
-                .getBoolean("enabled", false)
-    }
-    DisposableEffect(activity, coverKeyguard) {
+    // The normal player never occludes Keyguard. Only LockscreenFoliaActivity may do so.
+    DisposableEffect(activity) {
         val window = activity?.window
         val previousUi = window?.decorView?.systemUiVisibility
         val wasFullscreen = window?.attributes?.flags?.and(
@@ -46,13 +40,7 @@ internal actual fun FoliaSystemBarsEffect() {
         window?.decorView?.systemUiVisibility = (previousUi ?: 0) or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1 && coverKeyguard) {
-            activity?.setShowWhenLocked(true)
-        }
         onDispose {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1 && coverKeyguard) {
-                activity?.setShowWhenLocked(false)
-            }
             if (previousUi != null) window?.decorView?.systemUiVisibility = previousUi
             if (!wasFullscreen) window?.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
