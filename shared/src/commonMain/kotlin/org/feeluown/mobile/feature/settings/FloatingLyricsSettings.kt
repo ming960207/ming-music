@@ -15,6 +15,9 @@ internal expect fun rememberFloatingLyricsSettingsAction(): FloatingLyricsSettin
 internal data class LockscreenStageSettingsAction(
     val enabled: Boolean,
     val setEnabled: (Boolean) -> Unit,
+    val vendorPermissionSummary: String? = null,
+    val openVendorPermissionSettings: (() -> Unit)? = null,
+    val lastStageDiagnostic: String? = null,
 )
 
 @Composable
