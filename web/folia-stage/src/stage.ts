@@ -124,7 +124,6 @@ async function boot() {
       setScene(value: Scene) { if (disposed) return; scene = value; rebuild(); }, updateClock,
       renderAt, anchors, destroy, upstreamCommit: 'ced47852c64c2709faebe0190d430c3ab75ca2a4',
     };
-    document.getElementById('source')!.onclick = () => native('source');
     addEventListener('resize', resize); document.addEventListener('visibilitychange', visibility);
     addEventListener('pagehide', destroy, { once: true });
     resize(); status.textContent = '聆听此刻'; document.title = 'ming-folia-ready';
