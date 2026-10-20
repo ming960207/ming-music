@@ -57,3 +57,27 @@ internal actual fun rememberFloatingLyricsSettingsAction(): FloatingLyricsSettin
         },
     )
 }
+
+@Composable
+internal actual fun rememberLockscreenStageSettingsAction(): LockscreenStageSettingsAction? {
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O_MR1) return null
+    val context = LocalContext.current
+    val prefs = remember(context) {
+        context.getSharedPreferences("ming_immersive_lockscreen", android.content.Context.MODE_PRIVATE)
+    }
+    var enabled by remember(prefs) { mutableStateOf(prefs.getBoolean("enabled", false)) }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "enabled") enabled = prefs.getBoolean("enabled", false)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return LockscreenStageSettingsAction(
+        enabled = enabled,
+        setEnabled = { value ->
+            prefs.edit().putBoolean("enabled", value).apply()
+            enabled = value
+        },
+    )
+}
