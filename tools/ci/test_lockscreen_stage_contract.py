@@ -19,6 +19,11 @@ class LockscreenStageContractTest(unittest.TestCase):
         self.assertNotIn("startActivity(", launcher)
         self.assertNotIn("LockscreenFoliaActivity::class", launcher)
 
+    def test_media_card_does_not_open_the_duplicate_lockscreen_player(self):
+        service = source("androidApp/src/main/kotlin/org/feeluown/mobile/FuoPlaybackService.kt")
+        self.assertIn("Intent(this, MainActivity::class.java)", service)
+        self.assertNotIn("Intent(this, LockscreenFoliaActivity::class.java)", service)
+
     def test_main_folia_stage_owns_keyguard_registration(self):
         immersive = source(
             "shared/src/commonMain/kotlin/org/feeluown/mobile/feature/playback/ImmersivePlayerScreen.kt"
