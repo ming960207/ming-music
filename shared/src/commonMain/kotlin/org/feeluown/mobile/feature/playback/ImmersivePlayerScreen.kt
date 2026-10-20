@@ -111,8 +111,8 @@ internal fun ImmersivePlayerScreen(
 ) {
     val presentation = LocalPlaybackPresentationPort.current
     FoliaSystemBarsEffect()
-    // Enter the dedicated keyguard-capable screen while user is still in the foreground.
-    // The separate Activity survives MainActivity's background navigation cleanup.
+    // Preserve the *current* Folia WebView, playback state and associated lyrics on Keyguard.
+    // Do not automatically start a duplicate lockscreen Activity over the stage.
     OpenLockscreenStageWhenEnabled(rememberLockscreenStageSettingsAction()?.enabled == true)
     val association by LocalPlaybackLyricsPort.current.associationState.collectAsStateWithLifecycle()
     val lyrics = remember(state.lyrics) { parseLyrics(state.lyrics) }
