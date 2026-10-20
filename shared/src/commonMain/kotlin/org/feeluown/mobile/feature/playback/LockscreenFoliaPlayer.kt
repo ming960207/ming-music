@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun LockscreenFoliaPlayer(
     state: PlaybackState,
+    alignmentOffsetMs: Long = 0L,
+    fontSize: LyricFontSize = LyricFontSize.Medium,
     onClose: () -> Unit,
     onSeek: (Long) -> Unit,
     onPlayPause: () -> Unit,
@@ -46,30 +49,39 @@ fun LockscreenFoliaPlayer(
     val position = key(state.currentTrack?.id) {
         rememberKaraokePositionMs(state.positionMs, playing)
     }
-    val accent = Color(0xFFE2ECCD)
+    val alignedPosition = remember(position, alignmentOffsetMs) {
+        derivedStateOf { (position.value - alignmentOffsetMs).coerceAtLeast(0L) }
+    }
+    val cover = rememberPlatformCoverImage(state.currentTrack?.coverUrl, maxSizePx = 512)
+    val accent = rememberStageAccent(cover, Color(0xFFE2ECCD))
     val clock = rememberStageClock(playing, true)
     var controlsVisible by remember { mutableStateOf(true) }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
         Box(Modifier.fillMaxSize().background(Color(0xFF080B12))) {
-            ImmersiveStageBackdrop(null, accent, clock, ImmersiveStageStyle.Glyph)
+            val foliaStyle = ImmersiveStageStyle.Glyph.foliaStyle
+            if (foliaStyle != null) FoliaMovingBackdrop(cover, accent, foliaStyle, clock)
+            else ImmersiveStageBackdrop(cover, accent, clock, ImmersiveStageStyle.Glyph)
             if (lines.isNotEmpty()) {
                 ImmersiveGlyphStage(
                     lyrics = lines,
-                    position = position,
+                    position = alignedPosition,
                     trackId = state.currentTrack?.id,
                     accent = accent,
-                    fontSize = LyricFontSize.Medium,
+                    fontSize = fontSize,
                     motion = true,
                     extras = true,
                     playing = playing,
-                    onSeek = { value -> onSeek(value.coerceIn(0L, state.durationMs.coerceAtLeast(0L))) },
+                    onSeek = { value ->
+                        immersiveLyricSeekTarget(value, alignmentOffsetMs, state.durationMs)?.let(onSeek)
+                    },
                     onBlankTap = { controlsVisible = !controlsVisible },
                     modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 110.dp),
                 )
             } else {
                 Text(
-                    text = if (state.currentTrack == null) "请先播放音乐" else "当前歌曲暂无同步歌词",
+                    text = if (state.currentTrack == null) "请先播放音乐"
+                        else "当前歌曲暂未获取到同步歌词，请返回播放器搜索或关联歌词",
                     modifier = Modifier.align(Alignment.Center),
                     color = Color.White,
                 )
