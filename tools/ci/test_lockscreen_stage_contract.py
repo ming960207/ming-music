@@ -1,4 +1,4 @@
-"""Regression guards for the 0.1.6 accidental lockscreen takeover / empty lyrics bug."""
+"""Prevent the 0.1.6 blank lockscreen activity regression."""
 import pathlib
 import unittest
 
@@ -10,44 +10,33 @@ def source(relative):
 
 
 class LockscreenStageContractTest(unittest.TestCase):
-    def test_immersive_stage_never_launches_an_alternate_activity_automatically(self):
+    def test_keyguard_reuses_existing_activity_not_duplicate_player(self):
         launcher = source(
             "shared/src/androidMain/kotlin/org/feeluown/mobile/LockscreenStageLauncher.android.kt"
         )
         self.assertIn("activity?.setShowWhenLocked(true)", launcher)
         self.assertIn("activity?.setShowWhenLocked(false)", launcher)
+        self.assertIn("Lifecycle.Event.ON_PAUSE", launcher)
         self.assertNotIn("startActivity(", launcher)
-        self.assertNotIn("LockscreenFoliaActivity::class", launcher)
+        manifest = source("androidApp/src/main/AndroidManifest.xml")
+        self.assertNotIn('.LockscreenFoliaActivity', manifest)
+        self.assertFalse((ROOT / "androidApp/src/main/kotlin/org/feeluown/mobile/LockscreenFoliaActivity.kt").exists())
+        self.assertFalse((ROOT / "shared/src/commonMain/kotlin/org/feeluown/mobile/feature/playback/LockscreenFoliaPlayer.kt").exists())
 
-    def test_media_card_does_not_open_the_duplicate_lockscreen_player(self):
+    def test_media_card_returns_original_player(self):
         service = source("androidApp/src/main/kotlin/org/feeluown/mobile/FuoPlaybackService.kt")
         self.assertIn("Intent(this, MainActivity::class.java)", service)
         self.assertNotIn("Intent(this, LockscreenFoliaActivity::class.java)", service)
 
-    def test_main_folia_stage_owns_keyguard_registration(self):
+    def test_folia_renderer_keeps_associated_lyrics_and_alignment(self):
         immersive = source(
             "shared/src/commonMain/kotlin/org/feeluown/mobile/feature/playback/ImmersivePlayerScreen.kt"
         )
         self.assertIn("OpenLockscreenStageWhenEnabled(", immersive)
+        self.assertIn("LocalPlaybackLyricsPort.current.associationState", immersive)
         self.assertIn("ImmersiveGlyphStage(lyrics, alignedPosition", immersive)
-
-    def test_notification_lockscreen_reads_resolved_lyrics_not_just_raw_service(self):
-        activity = source(
-            "androidApp/src/main/kotlin/org/feeluown/mobile/LockscreenFoliaActivity.kt"
-        )
-        self.assertIn("graph.playbackSession.state.collectAsStateWithLifecycle()", activity)
-        self.assertIn("sessionState.lyrics ?: rawState.lyrics", activity)
-        self.assertIn("association.alignmentOffsetMs", activity)
-        self.assertIn("graph.playback.presentation.lyricFontSize", activity)
-
-    def test_lockscreen_folia_reuses_lyric_alignment_and_real_webgl_renderer(self):
-        stage = source(
-            "shared/src/commonMain/kotlin/org/feeluown/mobile/feature/playback/LockscreenFoliaPlayer.kt"
-        )
-        self.assertIn("position.value - alignmentOffsetMs", stage)
-        self.assertIn("ImmersiveGlyphStage(", stage)
-        self.assertIn("immersiveLyricSeekTarget(value, alignmentOffsetMs", stage)
-        self.assertIn("FoliaMovingBackdrop(", stage)
+        self.assertIn("rememberKaraokePositionMs(", immersive)
+        self.assertIn("onBlankTap = { chromeVisible = !chromeVisible }", immersive)
 
 
 if __name__ == "__main__":
