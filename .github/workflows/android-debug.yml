@@ -34,6 +34,8 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/ci -p test_verify_folia_bundle.py
           python3 tools/ci/verify_folia_bundle.py androidApp/build/outputs/apk/debug/androidApp-debug.apk
+      - name: Verify keyguard Folia presentation contracts
+        run: python3 -m unittest discover -s tools/ci -p test_lockscreen_stage_contract.py
       - name: Verify immersive stage timing and architecture
         run: ./gradlew :shared:testAndroidHostTest --tests '*Immersive*' --tests '*LyricsParserTest' --tests '*FoliaPerformanceTest' --tests '*FuoThemeTest' checkArchitectureBoundaries :androidApp:lintDebug --stacktrace
       - name: Upload APK
