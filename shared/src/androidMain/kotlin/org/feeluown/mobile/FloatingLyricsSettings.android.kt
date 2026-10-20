@@ -62,22 +62,48 @@ internal actual fun rememberFloatingLyricsSettingsAction(): FloatingLyricsSettin
 internal actual fun rememberLockscreenStageSettingsAction(): LockscreenStageSettingsAction? {
     if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O_MR1) return null
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val prefs = remember(context) {
         context.getSharedPreferences("ming_immersive_lockscreen", android.content.Context.MODE_PRIVATE)
     }
     var enabled by remember(prefs) { mutableStateOf(prefs.getBoolean("enabled", false)) }
-    DisposableEffect(prefs) {
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "enabled") enabled = prefs.getBoolean("enabled", false)
-        }
-        prefs.registerOnSharedPreferenceChangeListener(listener)
-        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    var vendorStatus by remember(context) {
+        mutableStateOf(LockscreenStageVendor.checkShowOnLockScreen(context))
     }
+    var stageDiagnostic by remember(context) { mutableStateOf(LockscreenStageVendor.diagnostics(context)) }
+
+    DisposableEffect(lifecycleOwner, prefs) {
+        val refresh = {
+            enabled = prefs.getBoolean("enabled", false)
+            vendorStatus = LockscreenStageVendor.checkShowOnLockScreen(context)
+            stageDiagnostic = LockscreenStageVendor.diagnostics(context)
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "enabled" || key?.startsWith("stage_last_") == true) refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+    val xiaomi = LockscreenStageVendor.isXiaomiFamily()
     return LockscreenStageSettingsAction(
         enabled = enabled,
         setEnabled = { value ->
             prefs.edit().putBoolean("enabled", value).apply()
             enabled = value
         },
+        vendorPermissionSummary = if (!xiaomi) null else when (vendorStatus) {
+            LockscreenStageVendor.Permission.Granted -> "小米锁屏显示权限：检测为允许"
+            LockscreenStageVendor.Permission.Denied -> "小米锁屏显示权限：检测为拒绝，请手动允许"
+            LockscreenStageVendor.Permission.Unknown -> "小米锁屏显示权限：无法读取，请在系统设置中确认"
+        },
+        openVendorPermissionSettings = if (xiaomi) ({ LockscreenStageVendor.openPermissionPage(context) }) else null,
+        lastStageDiagnostic = stageDiagnostic,
     )
 }
