@@ -40,6 +40,7 @@ class ImmersiveFoliaSceneTest {
     @Test fun onlyNarrowValidatedStageActionsReachThePlayer() {
         assertEquals(1_200L, parseFoliaStageAction("{\"action\":\"seek\",\"positionMs\":1200}")?.positionMs)
         assertEquals("blank", parseFoliaStageAction("{\"action\":\"blank\"}")?.action)
+        assertNull(parseFoliaStageAction("{\"action\":\"source\"}"))
         assertNull(parseFoliaStageAction("{\"action\":\"seek\",\"positionMs\":-1}"))
         assertNull(parseFoliaStageAction("{\"action\":\"seek\"}"))
         assertNull(parseFoliaStageAction("{\"action\":\"openUrl\",\"url\":\"https://example.com\"}"))
