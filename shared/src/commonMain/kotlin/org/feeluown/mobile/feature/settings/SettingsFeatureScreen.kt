@@ -1138,7 +1138,7 @@ private fun AppearanceFeatureSettings(
             SettingsDivider(startPadding = FuoSpacing.lg)
             SettingsToggleRow(
                 title = "锁屏保持沉浸歌词舞台",
-                supportingText = "仅在沉浸舞台已打开时，锁屏唤醒后继续显示；不会自动亮屏、覆盖其他应用或跳过解锁验证",
+                supportingText = "开启后，从沉浸播放进入独立锁屏舞台；也可从系统锁屏音乐卡片进入。不会自动亮屏或绕过设备解锁",
                 checked = lockscreen.enabled,
                 enabled = enabled,
                 onCheckedChange = lockscreen.setEnabled,
