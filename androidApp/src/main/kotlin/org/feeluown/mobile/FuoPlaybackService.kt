@@ -186,14 +186,15 @@ class FuoPlaybackService : MediaSessionService() {
         }
         val sessionPlayer = QueueCommandPlayer(exoPlayer)
         mediaSession = MediaSession.Builder(this, sessionPlayer)
-            // System media-card tap is user initiated, and may open the lyric stage on Keyguard.
-            // The destination checks the user's opt-in before rendering any lyrics.
+            // Return to the EXISTING MainActivity/immersive Folia WebView on media-card tap.
+            // A parallel LockscreenFoliaActivity would replace the original stage with a
+            // different presentation and lose its Compose/WebView state on HyperOS.
             .setSessionActivity(
                 PendingIntent.getActivity(
                     this,
                     32041,
-                    Intent(this, LockscreenFoliaActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    Intent(this, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     },
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
