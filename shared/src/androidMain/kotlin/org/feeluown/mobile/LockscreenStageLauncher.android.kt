@@ -13,9 +13,24 @@ internal actual fun OpenLockscreenStageWhenEnabled(enabled: Boolean) {
         if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             // User entered the immersive player, so this is a permitted foreground launch.
             // Do not attempt to start Activities from the media service or screen-off broadcasts.
-            context.startActivity(
-                Intent().setClassName(context.packageName, "org.feeluown.mobile.LockscreenFoliaActivity")
-            )
+            val prefs = context.getSharedPreferences(
+                "ming_immersive_lockscreen", android.content.Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("stage_last_phase", "发起启动")
+                .putLong("stage_last_timestamp", System.currentTimeMillis())
+                .apply()
+            runCatching {
+                context.startActivity(
+                    Intent().setClassName(
+                        context.packageName, "org.feeluown.mobile.LockscreenFoliaActivity")
+                )
+            }.onFailure { error ->
+                android.util.Log.e("MingLockscreenStage", "Lockscreen stage launch failed", error)
+                prefs.edit()
+                    .putString("stage_last_phase", "启动失败：${error.javaClass.simpleName}")
+                    .putLong("stage_last_timestamp", System.currentTimeMillis())
+                    .apply()
+            }
         }
     }
 }
