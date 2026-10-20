@@ -1063,6 +1063,7 @@ private fun AppearanceFeatureSettings(
     val enabled = !state.isBusy
     val uriHandler = LocalUriHandler.current
     val floatingLyrics = rememberFloatingLyricsSettingsAction()
+    val lockscreenStage = rememberLockscreenStageSettingsAction()
     val themeBackground = rememberThemeBackgroundSettingsAction()
     SettingsGroup(title = "主题") {
         SettingsChoiceRow(
@@ -1131,6 +1132,16 @@ private fun AppearanceFeatureSettings(
                 checked = floating.enabled,
                 enabled = enabled && floating.available,
                 onCheckedChange = floating.setEnabled,
+            )
+        }
+        lockscreenStage?.let { lockscreen ->
+            SettingsDivider(startPadding = FuoSpacing.lg)
+            SettingsToggleRow(
+                title = "锁屏保持沉浸歌词舞台",
+                supportingText = "仅在沉浸舞台已打开时，锁屏唤醒后继续显示；不会自动亮屏、覆盖其他应用或跳过解锁验证",
+                checked = lockscreen.enabled,
+                enabled = enabled,
+                onCheckedChange = lockscreen.setEnabled,
             )
         }
         if (state.statusBarLyricsAvailable) {
@@ -1343,6 +1354,14 @@ private fun AboutFeatureSettings(
             )
             SettingsDivider()
         }
+        SettingsRow(
+            title = "Ming Music 开源许可与源码",
+            supportingText = "Folia AGPL-3.0 · 应用 GPL-3.0 · 第三方版权声明",
+            leadingContent = { Icon(Icons.Filled.Code, contentDescription = null) },
+            trailingContent = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+            onClick = { uriHandler.openUri("https://github.com/ming960207/ming-music/tree/main/web/folia-stage") },
+        )
+        SettingsDivider()
         SettingsRow(
             title = "FuoEvolve 源代码",
             supportingText = "GitHub 项目主页",
