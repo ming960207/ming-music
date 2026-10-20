@@ -46,9 +46,13 @@ internal actual fun FoliaSystemBarsEffect() {
         window?.decorView?.systemUiVisibility = (previousUi ?: 0) or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        if (coverKeyguard) activity?.setShowWhenLocked(true)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1 && coverKeyguard) {
+            activity?.setShowWhenLocked(true)
+        }
         onDispose {
-            if (coverKeyguard) activity?.setShowWhenLocked(false)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1 && coverKeyguard) {
+                activity?.setShowWhenLocked(false)
+            }
             if (previousUi != null) window?.decorView?.systemUiVisibility = previousUi
             if (!wasFullscreen) window?.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         }
