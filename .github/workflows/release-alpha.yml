@@ -75,7 +75,9 @@ jobs:
           echo "APK_NAME=MingMusic-$MING_VERSION_NAME.apk" >> "$GITHUB_ENV"
 
       - name: Regression checks
-        run: python3 -m unittest discover -s tools/ci -p test_verify_android_release.py
+        run: |
+          python3 -m unittest discover -s tools/ci -p test_verify_android_release.py
+          python3 -m unittest discover -s tools/ci -p test_lockscreen_stage_contract.py
 
       - name: Fetch previous permanent APK for upgrade comparison
         env:
