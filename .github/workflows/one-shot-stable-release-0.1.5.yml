@@ -1,0 +1,27 @@
+name: One-time Ming Music 0.1.5 signed release dispatch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-stable-release-0.1.5.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'ming960207/ming-music'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Launch the existing permanent-signed release pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/release-alpha.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[version_name]=0.1.5' \
+            -f 'inputs[version_code]=100033' \
+            -f 'inputs[channel]=stable'
