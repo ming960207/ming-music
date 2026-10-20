@@ -11,6 +11,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import org.feeluown.mobile.playback.api.PlaybackSessionStatus
 
 /**
  * Dedicated foreground Keyguard Activity: its window remains eligible for display when the
@@ -36,18 +38,37 @@ class LockscreenFoliaActivity : ComponentActivity() {
         recordStageEvent("setShowWhenLocked=true")
         enableEdgeToEdge()
         setContent {
-            val playback by FuoPlaybackService.playbackState.collectAsStateWithLifecycle()
+            // The service only contains raw provider lyrics. The app playback session owns
+            // associated/replaced lyrics and timing: use the SAME source as RuntimeFullPlayer.
+            val graph = remember { (application as FuoEvolveApplication).appUiGraph }
+            val sessionState by graph.playbackSession.state.collectAsStateWithLifecycle()
+            val rawState by FuoPlaybackService.playbackState.collectAsStateWithLifecycle()
+            val association by graph.playback.lyrics.associationState.collectAsStateWithLifecycle()
+            val sessionActive = sessionState.currentTrack != null
+            val playback = rawState.copy(
+                currentTrack = graph.playback.presentation.currentTrack ?: rawState.currentTrack,
+                lyrics = if (sessionActive) sessionState.lyrics ?: rawState.lyrics else rawState.lyrics,
+                positionMs = if (sessionActive) sessionState.positionMs else rawState.positionMs,
+                durationMs = if (sessionActive) sessionState.durationMs else rawState.durationMs,
+                status = if (sessionActive) when (sessionState.status) {
+                    PlaybackSessionStatus.Idle -> PlayerStatus.Idle
+                    PlaybackSessionStatus.Loading -> PlayerStatus.Loading
+                    PlaybackSessionStatus.Playing -> PlayerStatus.Playing
+                    PlaybackSessionStatus.Paused -> PlayerStatus.Paused
+                    PlaybackSessionStatus.Error -> PlayerStatus.Error
+                    PlaybackSessionStatus.Ended -> PlayerStatus.Ended
+                } else rawState.status,
+            )
+            val offset = association.alignmentOffsetMs
+                .takeIf { association.trackId == playback.currentTrack?.id } ?: 0L
             BackHandler { finish() }
             LockscreenFoliaPlayer(
                 state = playback,
+                alignmentOffsetMs = offset,
+                fontSize = graph.playback.presentation.lyricFontSize,
                 onClose = { finish() },
-                onSeek = { position ->
-                    (application as FuoEvolveApplication).appUiGraph.playbackSession.seekTo(position)
-                },
-                onPlayPause = {
-                    if (playback.status == PlayerStatus.Playing) FuoPlaybackService.pause(this)
-                    else FuoPlaybackService.resume(this)
-                },
+                onSeek = graph.playback.presentation::seekTo,
+                onPlayPause = { graph.playbackSession.toggle() },
             )
         }
     }
