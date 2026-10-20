@@ -43,7 +43,7 @@ internal data class FoliaStageAction(val action: String, val positionMs: Long? =
 
 internal fun parseFoliaStageAction(params: String): FoliaStageAction? = runCatching {
     Json.decodeFromString<FoliaStageAction>(params).takeIf {
-        it.action == "blank" || it.action == "source" ||
+        it.action == "blank" ||
             (it.action == "seek" && it.positionMs != null && it.positionMs >= 0 && it.positionMs < Long.MAX_VALUE)
     }
 }.getOrNull()
