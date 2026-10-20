@@ -1143,6 +1143,23 @@ private fun AppearanceFeatureSettings(
                 enabled = enabled,
                 onCheckedChange = lockscreen.setEnabled,
             )
+            lockscreen.vendorPermissionSummary?.let { summary ->
+                SettingsDivider(startPadding = FuoSpacing.lg)
+                SettingsRow(
+                    title = "红米／小米锁屏显示权限",
+                    supportingText = summary + " · 点击进入系统权限页，允许「锁屏显示」",
+                    enabled = enabled,
+                    onClick = { lockscreen.openVendorPermissionSettings?.invoke() },
+                )
+            }
+            lockscreen.lastStageDiagnostic?.let { diagnostic ->
+                SettingsDivider(startPadding = FuoSpacing.lg)
+                SettingsRow(
+                    title = "最近一次锁屏舞台状态",
+                    supportingText = diagnostic,
+                    enabled = false,
+                )
+            }
         }
         if (state.statusBarLyricsAvailable) {
             SettingsDivider(startPadding = FuoSpacing.lg)
