@@ -16,7 +16,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import dev.nucleusframework.webview.jsbridge.IJsMessageHandler
 import dev.nucleusframework.webview.jsbridge.JsMessage
 import dev.nucleusframework.webview.jsbridge.rememberWebViewJsBridge
@@ -68,8 +67,7 @@ internal fun ImmersiveGlyphStage(
     val bridge = rememberWebViewJsBridge(navigator)
     val latestSeek by rememberUpdatedState(onSeek)
     val latestBlank by rememberUpdatedState(onBlankTap)
-    val uriHandler = LocalUriHandler.current
-    DisposableEffect(bridge, uriHandler) {
+    DisposableEffect(bridge) {
         val handler = object : IJsMessageHandler {
             override fun methodName() = "stageAction"
             override fun handle(message: JsMessage, navigator: WebViewNavigator?, callback: (String) -> Unit) {
@@ -78,7 +76,6 @@ internal fun ImmersiveGlyphStage(
                     else -> when (action.action) {
                         "blank" -> latestBlank()
                         "seek" -> action.positionMs?.let(latestSeek)
-                        "source" -> uriHandler.openUri("https://github.com/ming960207/ming-music/tree/main/web/folia-stage")
                     }
                 }
                 callback("{}")
