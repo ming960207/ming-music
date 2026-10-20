@@ -1138,7 +1138,7 @@ private fun AppearanceFeatureSettings(
             SettingsDivider(startPadding = FuoSpacing.lg)
             SettingsToggleRow(
                 title = "锁屏保持沉浸歌词舞台",
-                supportingText = "保留当前 Folia 沉浸舞台并允许锁屏唤醒后继续显示；系统媒体卡片可打开歌词舞台，需授予小米锁屏显示权限",
+                supportingText = "保留已打开的 Folia 沉浸舞台，锁屏唤醒后尝试继续显示；媒体卡片返回原播放器。红米需允许系统「锁屏显示」权限",
                 checked = lockscreen.enabled,
                 enabled = enabled,
                 onCheckedChange = lockscreen.setEnabled,
