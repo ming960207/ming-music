@@ -38,3 +38,15 @@ test('TV layout presets preserve the original Folia renderer and remove canvas f
   assert.match(stage, /app\.canvas\.tabIndex = -1/);
   assert.match(html, /canvas:focus,canvas:focus-visible\{outline:none;box-shadow:none\}/);
 });
+
+test('TV text modes use existing lyric timestamps and safe DOM text nodes', async () => {
+  const stage = await readFile('src/stage.ts', 'utf8');
+  const html = await readFile('src/index.html', 'utf8');
+  assert.match(stage, /function renderTextStage\(time: number\)/);
+  assert.match(stage, /textContent = active\.fullText/);
+  assert.match(stage, /textContent = scene\.lines\[i\]\.fullText/);
+  assert.match(stage, /native\('seek', Math\.round\(active\.startTime \* 1000\)\)/);
+  assert.match(html, /mode-classic/);
+  assert.match(html, /mode-cantus/);
+  assert.match(html, /mode-nimbus/);
+});
