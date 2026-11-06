@@ -31,7 +31,7 @@ test('the shipped stage is offline and includes its copyright and source offer',
 test('TV layout presets preserve the original Folia renderer and remove canvas focus outline', async () => {
   const stage = await readFile('src/stage.ts', 'utf8');
   const html = await readFile('src/index.html', 'utf8');
-  assert.match(stage, /type StagePreset = 'original' \| 'focus' \| 'wide' \| 'crossed'/);
+  assert.match(stage, /type StagePreset = 'original' \| 'focus' \| 'wide' \| 'crossed' \| 'classic' \| 'cantus' \| 'nimbus'/);
   assert.match(stage, /let preset: StagePreset = 'original'/);
   assert.match(stage, /setPreset, getPreset\(\)/);
   assert.match(stage, /createLyricWindow\(pixi,/);
