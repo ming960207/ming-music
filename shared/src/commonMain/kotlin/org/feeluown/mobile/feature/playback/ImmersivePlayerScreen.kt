@@ -172,7 +172,8 @@ internal fun ImmersivePlayerScreen(
                     } else {
                         StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible })
                         StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
-                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it })
+                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it },
+                            glyphPreset, { glyphPreset = it })
                     }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
