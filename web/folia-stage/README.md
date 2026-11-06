@@ -44,3 +44,13 @@ Screenshots are written to `build/folia-stage-previews` at the repository root. 
 
 Updating upstream requires replacing the source files and their manifest together, reviewing the
 license/dependency changes, then rebuilding and running both native bridge and browser checks.
+
+## TV lyric layout presets (experimental)
+
+The existing Folia glyph stage remains the default `original` preset. In the immersive player's stage settings, choose 原版字境 / 聚焦歌词 / 宽屏歌词 / 交错歌词. The Kotlin host forwards the selection through `MingFoliaStage.setPreset('original' | 'focus' | 'wide' | 'crossed')`.
+
+These are four layouts of the **same** pinned Folia `createLyricWindow` renderer, not ports of Navidrome Stage's Classic/Cantus/Nimbus/etc. The player clock, lyric parsing, seeks and playback are unchanged. The setting uses Compose `rememberSaveable` (screen-state restoration, not a durable cross-launch preference).
+
+The HTML canvas removes CSS border/outline/focus-visible styling and sets `tabIndex=-1`. If a yellow rectangle persists on a physical Android TV, inspect native Compose focus highlighting or TV accessibility focus; do not remove all keyboard/remote focus indication globally.
+
+After modifications rebuild the bundled offline HTML with `pnpm build` before packaging Android. This branch has not yet been built or tested on a TV.
