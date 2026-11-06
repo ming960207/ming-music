@@ -8,12 +8,26 @@
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#edf1e7;font-family:serif;touch-action:manipulation}
 canvas{position:absolute;inset:0;display:block;width:100%;height:100%;border:0;outline:none;box-shadow:none}canvas:focus,canvas:focus-visible{outline:none;box-shadow:none}
+.text-stage{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3.5vh;padding:8vh 9vw;box-sizing:border-box;text-align:center;pointer-events:none;color:var(--stage-accent,#edf1e7)}
+.text-stage[hidden]{display:none}
+.text-stage .text-heading,.text-stage .cantus-row{max-width:100%;overflow-wrap:anywhere;line-height:1.35;pointer-events:auto}
+.text-stage .text-heading{font-size:clamp(30px,5.2vw,76px);font-weight:600;letter-spacing:.035em}
+.text-stage .text-secondary{font-size:clamp(19px,2.5vw,35px);opacity:.32}
+.mode-classic .text-heading{animation:stage-rise .65s ease-out both}
+.mode-cantus{gap:1.2vh}
+.mode-cantus .cantus-row{font-size:clamp(18px,2.7vw,38px);opacity:.26;margin:0;transform:scale(.94);transition:opacity .4s,transform .4s}
+.mode-cantus .cantus-row.is-active{font-size:clamp(30px,4.5vw,64px);opacity:1;transform:scale(1)}
+.mode-nimbus .text-heading{max-width:82%;animation:stage-float 7s ease-in-out infinite alternate}
+@keyframes stage-rise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+@keyframes stage-float{from{transform:translate(-2vw,1vh) rotate(-2deg);opacity:.65}to{transform:translate(2vw,-1vh) rotate(2deg);opacity:1}}
+@media(prefers-reduced-motion:reduce){.text-stage *{animation:none!important;transition:none!important}}
 #subtitle{position:absolute;bottom:8%;left:9%;right:9%;text-align:center;pointer-events:none;white-space:pre-line;line-height:1.7;font-size:14px;color:#d7dfce99}
 #status{position:absolute;top:44%;width:100%;text-align:center;color:#d7dfce99;font-size:16px}
 </style>
 </head>
 <body>
 <div id="status" role="status">舞台正在加载</div>
+<div id="text-stage" class="text-stage" hidden aria-label="歌词展示"></div>
 <div id="subtitle" aria-live="polite"></div>
 <!-- Preserve embedded third-party notices without covering the lyric canvas. -->
 <template id="stage-license-notices"><!-- LICENSES --></template>
