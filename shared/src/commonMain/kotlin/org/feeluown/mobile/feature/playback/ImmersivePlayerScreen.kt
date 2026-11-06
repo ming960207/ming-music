@@ -124,6 +124,7 @@ internal fun ImmersivePlayerScreen(
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var extrasVisible by rememberSaveable { mutableStateOf(true) }
     var stageMotion by rememberSaveable { mutableStateOf(true) }
+    var glyphPreset by rememberSaveable { mutableStateOf("original") }
     var settingsOpen by remember { mutableStateOf(false) }
     var interacting by remember { mutableStateOf(false) }
     LaunchedEffect(chromeVisible, settingsOpen, interacting, style, state.status, state.currentTrack?.id) {
@@ -154,7 +155,8 @@ internal fun ImmersivePlayerScreen(
                 if (style == ImmersiveStageStyle.Glyph && lyrics.isNotEmpty()) {
                     // Keep Folia's viewport independent of chrome visibility to preserve its composition.
                     ImmersiveGlyphStage(lyrics, alignedPosition, state.currentTrack?.id, accent,
-                        presentation.lyricFontSize, motionEnabled, extrasVisible, playing = state.status == PlayerStatus.Playing,
+                        presentation.lyricFontSize, motionEnabled, extrasVisible, preset = glyphPreset,
+                        playing = state.status == PlayerStatus.Playing,
                         onSeek = { time -> immersiveLyricSeekTarget(time, offset, state.durationMs)?.let(presentation::seekTo) },
                         onBlankTap = { chromeVisible = !chromeVisible },
                         modifier = Modifier.fillMaxSize().padding(horizontal = if (landscape) 28.dp else 18.dp)
@@ -165,7 +167,8 @@ internal fun ImmersivePlayerScreen(
                     if (landscape) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f)) { StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible }) }
                         Box(Modifier.weight(1f)) { StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
-                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it }) }
+                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it },
+                            glyphPreset, { glyphPreset = it }) }
                     } else {
                         StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible })
                         StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
@@ -255,7 +258,8 @@ private fun StageHeader(style: ImmersiveStageStyle, chromeVisible: Boolean, onEx
 
 @Composable
 private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveStageStyle) -> Unit,
-    extras: Boolean, onExtras: () -> Unit, motion: Boolean, onMotion: () -> Unit, onMenu: (Boolean) -> Unit) {
+    extras: Boolean, onExtras: () -> Unit, motion: Boolean, onMotion: () -> Unit, onMenu: (Boolean) -> Unit,
+    glyphPreset: String, onGlyphPreset: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center) {
@@ -276,6 +280,12 @@ private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveSt
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false; onMenu(false) }) {
                 DropdownMenuItem(text = { Text(if (extras) "隐藏译文与音译" else "显示译文与音译") }, onClick = { onExtras(); menu = false; onMenu(false) })
                 DropdownMenuItem(text = { Text(if (motion) "关闭舞台动效" else "开启舞台动效") }, onClick = { onMotion(); menu = false; onMenu(false) })
+                if (style == ImmersiveStageStyle.Glyph) {
+                    listOf("original" to "原版字境", "focus" to "聚焦歌词", "wide" to "宽屏歌词", "crossed" to "交错歌词").forEach { (id, label) ->
+                        DropdownMenuItem(text = { Text((if (glyphPreset == id) "✓ " else "") + label) },
+                            onClick = { onGlyphPreset(id); menu = false; onMenu(false) })
+                    }
+                }
             }
         }
     }
