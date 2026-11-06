@@ -11,15 +11,18 @@ interface Scene { lines: Line[]; seed: string; accent: string; fontScale: number
 const status = document.getElementById('status')!;
 const subtitle = document.getElementById('subtitle')!;
 const app = new pixi.Application();
+const textStage = document.getElementById('text-stage')!;
+let activeTextLine = -2;
+const isTextPreset = () => preset === 'classic' || preset === 'cantus' || preset === 'nimbus';
 let lyric: LyricWindow | undefined;
 let sprites: ReturnType<typeof createLightSprites>;
 let scene: Scene | undefined;
 let baseTime = 0, clockAt = 0, playing = false, frameId = 0, disposed = false;
 let currentTime = 0, width = 1, height = 1;
 // Preserve the current Folia composition by default. TV presets are opt-in.
-type StagePreset = 'original' | 'focus' | 'wide' | 'crossed';
+type StagePreset = 'original' | 'focus' | 'wide' | 'crossed' | 'classic' | 'cantus' | 'nimbus';
 let preset: StagePreset = 'original';
-const stagePresets: readonly StagePreset[] = ['original', 'focus', 'wide', 'crossed'];
+const stagePresets: readonly StagePreset[] = ['original', 'focus', 'wide', 'crossed', 'classic', 'cantus', 'nimbus'];
 function setPreset(next: string) {
   if (!stagePresets.includes(next as StagePreset)) throw new Error('Unknown stage preset: ' + next);
   if (preset === next) return;
@@ -51,7 +54,12 @@ function typographyOf(index: number): WindowTypography {
 function rebuild() {
   if (!scene || disposed) return;
   lyric?.destroy(); lyric = undefined;
+  activeTextLine = -2;
+  textStage.replaceChildren();
+  textStage.hidden = !isTextPreset();
+  app.canvas.hidden = isTextPreset();
   subtitle.textContent = '';
+  if (isTextPreset()) { renderAt(currentTime); return; }
   if (!scene.lines.length) { status.textContent = '聆听此刻'; status.hidden = false; app.render(); return; }
   status.hidden = true;
   const isFocus = preset === 'focus';
@@ -69,13 +77,50 @@ function rebuild() {
   app.stage.addChild(lyric.view);
   renderAt(currentTime);
 }
+function renderTextStage(time: number) {
+  if (!scene) return;
+  const index = currentLine(time);
+  if (index === activeTextLine) return;
+  activeTextLine = index;
+  textStage.replaceChildren();
+  textStage.className = 'text-stage mode-' + preset;
+  const active = scene.lines[index];
+  if (!active) return;
+  if (preset === 'cantus') {
+    const from = Math.max(0, index - 2), to = Math.min(scene.lines.length, index + 3);
+    for (let i = from; i < to; i++) {
+      const row = document.createElement('p');
+      row.className = 'cantus-row' + (i === index ? ' is-active' : '');
+      row.textContent = scene.lines[i].fullText;
+      row.addEventListener('click', () => native('seek', Math.round(scene!.lines[i].startTime * 1000)));
+      textStage.append(row);
+    }
+  } else {
+    const heading = document.createElement('div');
+    heading.className = 'text-heading';
+    heading.textContent = active.fullText;
+    heading.addEventListener('click', () => native('seek', Math.round(active.startTime * 1000)));
+    textStage.append(heading);
+    if (preset === 'classic') {
+      const next = scene.lines[index + 1];
+      if (next) {
+        const secondary = document.createElement('div');
+        secondary.className = 'text-secondary';
+        secondary.textContent = next.fullText;
+        textStage.append(secondary);
+      }
+    }
+  }
+}
 function renderAt(time: number) {
   if (disposed || !scene) return;
   currentTime = Math.max(0, time);
+  if (isTextPreset()) renderTextStage(currentTime);
   const color = rgbOf(scene.accent);
   lyric?.update({ time: currentTime, beams: [], litColor: color, unlitColor: color,
     unlitAlpha: 0.26, intensity: 1, hideTrails: !scene.motion });
   const line = scene.lines[currentLine(currentTime)];
+  textStage.style.setProperty('--stage-accent', scene.accent);
   subtitle.textContent = scene.extras && line ? [line.romanization, line.translation].filter(Boolean).join('\n') : '';
   app.render();
 }
@@ -113,7 +158,7 @@ function destroy() {
   disposed = true;
   if (frameId) cancelAnimationFrame(frameId);
   removeEventListener('resize', resize); document.removeEventListener('visibilitychange', visibility);
-  lyric?.destroy(); sprites?.destroy(); app.destroy(true, { children: true });
+  lyric?.destroy(); textStage.replaceChildren(); sprites?.destroy(); app.destroy(true, { children: true });
 }
 async function boot() {
   try {
