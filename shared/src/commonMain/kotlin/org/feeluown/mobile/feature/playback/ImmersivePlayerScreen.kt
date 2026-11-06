@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -77,6 +78,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
@@ -351,10 +353,17 @@ private fun TvLyricPresetPicker(
                 TvLyricPresets.chunked(3).forEachIndexed { rowIndex, row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEachIndexed { columnIndex, (id, label) ->
+                            var focused by remember { mutableStateOf(false) }
                             val focus = if (rowIndex == 0 && columnIndex == 0)
                                 Modifier.focusRequester(firstFocus) else Modifier
                             FilledTonalButton(
-                                modifier = focus.weight(1f).heightIn(min = 64.dp),
+                                modifier = focus.weight(1f).heightIn(min = 64.dp)
+                                    .onFocusChanged { focused = it.isFocused }
+                                    .border(
+                                        width = if (focused) 2.dp else 0.dp,
+                                        color = if (focused) Color.White else Color.Transparent,
+                                        shape = RoundedCornerShape(16.dp),
+                                    ),
                                 onClick = { onSelect(id) },
                             ) {
                                 Text((if (selected == id) "✓ " else "") + label,
