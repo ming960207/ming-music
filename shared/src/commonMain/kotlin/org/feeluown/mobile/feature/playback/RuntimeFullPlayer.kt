@@ -720,13 +720,14 @@ private fun RuntimeQueueList(
     val currentPartIndex = presentation.currentPartIndex
     val currentCount = if (state.queueIndex == 0 && queue.isNotEmpty()) 1 else 0
     val upNextCount = queuePort.displayUpNextCount
-    val currentRow = state.queueIndex.takeIf { it in queue.indices && !queue[it].isUnavailable }
+    // Capture the opening position once; track changes must not steal focus while browsing.
+    val initialRow = remember { state.queueIndex.takeIf { it in queue.indices && !queue[it].isUnavailable } }
     val currentRowFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
-    LaunchedEffect(currentRow) {
-        if (currentRow != null) {
+    LaunchedEffect(initialRow) {
+        if (initialRow != null) {
             // The section headings are emitted within each itemsIndexed item, not separate slots.
-            listState.scrollToItem(currentRow)
+            listState.scrollToItem(initialRow)
             currentRowFocus.requestFocus()
         }
     }
@@ -767,7 +768,7 @@ private fun RuntimeQueueList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (index == currentRow) Modifier.focusRequester(currentRowFocus) else Modifier)
+                    .then(if (index == initialRow) Modifier.focusRequester(currentRowFocus) else Modifier)
                     .onFocusChanged { rowFocused = it.isFocused }
                     .border(
                         width = if (rowFocused) 2.dp else 0.dp,
