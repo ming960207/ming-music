@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -59,6 +61,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +70,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -713,7 +720,18 @@ private fun RuntimeQueueList(
     val currentPartIndex = presentation.currentPartIndex
     val currentCount = if (state.queueIndex == 0 && queue.isNotEmpty()) 1 else 0
     val upNextCount = queuePort.displayUpNextCount
-    LazyColumn(modifier = modifier) {
+    // Capture the opening position once; track changes must not steal focus while browsing.
+    val initialRow = remember { state.queueIndex.takeIf { it in queue.indices && !queue[it].isUnavailable } }
+    val currentRowFocus = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(initialRow) {
+        if (initialRow != null) {
+            // The section headings are emitted within each itemsIndexed item, not separate slots.
+            listState.scrollToItem(initialRow)
+            currentRowFocus.requestFocus()
+        }
+    }
+    LazyColumn(modifier = modifier, state = listState) {
         itemsIndexed(queue) { index, track ->
             if (index == 0 && currentCount == 1) {
                 Text(
@@ -739,6 +757,7 @@ private fun RuntimeQueueList(
                     modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
                 )
             }
+            var rowFocused by remember { mutableStateOf(false) }
             val isCurrent = index == state.queueIndex
             val isUnavailable = track.isUnavailable
             val titleColor = when {
@@ -749,6 +768,13 @@ private fun RuntimeQueueList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(if (index == initialRow) Modifier.focusRequester(currentRowFocus) else Modifier)
+                    .onFocusChanged { rowFocused = it.isFocused }
+                    .border(
+                        width = if (rowFocused) 2.dp else 0.dp,
+                        color = if (rowFocused) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                        shape = RoundedCornerShape(12.dp),
+                    )
                     .fuoInteractive()
                     .clickable(
                         enabled = !isUnavailable,

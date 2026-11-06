@@ -33,7 +33,7 @@ import org.feeluown.mobile.resources.Res
 @Composable
 internal fun ImmersiveGlyphStage(
     lyrics: List<LyricLine>, position: State<Long>, trackId: String?,
-    accent: Color, fontSize: LyricFontSize, motion: Boolean, extras: Boolean,
+    accent: Color, fontSize: LyricFontSize, motion: Boolean, extras: Boolean, preset: String = "original",
     onSeek: (Long) -> Unit, onBlankTap: () -> Unit, modifier: Modifier, playing: Boolean = false,
 ) {
     var html by remember { mutableStateOf<String?>(null) }
@@ -98,6 +98,9 @@ internal fun ImmersiveGlyphStage(
             navigator.evaluateJavaScript(sceneScript)
             navigator.evaluateJavaScript("window.MingFoliaStage.updateClock(${position.value.coerceAtLeast(0)},$playing);")
         }
+    }
+    LaunchedEffect(ready, sceneScript, preset) {
+        if (ready) navigator.evaluateJavaScript("window.MingFoliaStage.setPreset('$preset');")
     }
     LaunchedEffect(ready, position, playing) {
         if (ready) snapshotFlow { position.value }.sample(50).collect { time ->

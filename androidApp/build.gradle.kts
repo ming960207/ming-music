@@ -79,7 +79,8 @@ android {
         versionCode = gitVersionCode
         versionName = gitVersionName
 
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        // Keep 64-bit devices supported while adding 32-bit ARM Android TV devices.
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64") }
     }
 
     sourceSets {

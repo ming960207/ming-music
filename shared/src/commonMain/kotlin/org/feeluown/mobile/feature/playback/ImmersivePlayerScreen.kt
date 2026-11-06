@@ -11,7 +11,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -50,6 +52,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -74,6 +77,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -84,6 +90,11 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
@@ -124,11 +135,13 @@ internal fun ImmersivePlayerScreen(
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var extrasVisible by rememberSaveable { mutableStateOf(true) }
     var stageMotion by rememberSaveable { mutableStateOf(true) }
+    var glyphPreset by rememberSaveable { mutableStateOf("original") }
     var settingsOpen by remember { mutableStateOf(false) }
+    var tvPresetPickerOpen by remember { mutableStateOf(false) }
     var interacting by remember { mutableStateOf(false) }
-    LaunchedEffect(chromeVisible, settingsOpen, interacting, style, state.status, state.currentTrack?.id) {
+    LaunchedEffect(chromeVisible, settingsOpen, tvPresetPickerOpen, interacting, style, state.status, state.currentTrack?.id) {
         if (!chromeVisible) interacting = false
-        if (chromeVisible && !settingsOpen && !interacting && state.status == PlayerStatus.Playing) {
+        if (chromeVisible && !settingsOpen && !tvPresetPickerOpen && !interacting && state.status == PlayerStatus.Playing) {
             delay(5_000)
             chromeVisible = false
         }
@@ -145,7 +158,36 @@ internal fun ImmersivePlayerScreen(
     )
     MaterialTheme(colorScheme = colors) {
         CompositionLocalProvider(LocalContentColor provides Color.White) {
-        Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
+        Box(Modifier.fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || settingsOpen || tvPresetPickerOpen) return@onPreviewKeyEvent false
+                // Keep DPAD navigation owned by focused controls whenever chrome is visible.
+                if (chromeVisible) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionCenter, Key.Enter -> {
+                        chromeVisible = true
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        onOpenQueue()
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        if (style == ImmersiveStageStyle.Glyph) {
+                            tvPresetPickerOpen = true
+                        } else {
+                            chromeVisible = true
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
+            .pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
+            if (tvPresetPickerOpen) TvLyricPresetPicker(glyphPreset,
+                onSelect = { glyphPreset = it; tvPresetPickerOpen = false; chromeVisible = false },
+                onDismiss = { tvPresetPickerOpen = false })
             if (style.foliaStyle != null) FoliaMovingBackdrop(image, accent, style.foliaStyle, clock)
             else ImmersiveStageBackdrop(image, accent, clock, style)
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -154,7 +196,8 @@ internal fun ImmersivePlayerScreen(
                 if (style == ImmersiveStageStyle.Glyph && lyrics.isNotEmpty()) {
                     // Keep Folia's viewport independent of chrome visibility to preserve its composition.
                     ImmersiveGlyphStage(lyrics, alignedPosition, state.currentTrack?.id, accent,
-                        presentation.lyricFontSize, motionEnabled, extrasVisible, playing = state.status == PlayerStatus.Playing,
+                        presentation.lyricFontSize, motionEnabled, extrasVisible, preset = glyphPreset,
+                        playing = state.status == PlayerStatus.Playing,
                         onSeek = { time -> immersiveLyricSeekTarget(time, offset, state.durationMs)?.let(presentation::seekTo) },
                         onBlankTap = { chromeVisible = !chromeVisible },
                         modifier = Modifier.fillMaxSize().padding(horizontal = if (landscape) 28.dp else 18.dp)
@@ -165,11 +208,13 @@ internal fun ImmersivePlayerScreen(
                     if (landscape) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.weight(1f)) { StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible }) }
                         Box(Modifier.weight(1f)) { StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
-                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it }) }
+                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it },
+                            glyphPreset, { glyphPreset = it }) }
                     } else {
                         StageHeader(style, chromeVisible, onExit, onOpenQueue, { chromeVisible = !chromeVisible })
                         StageStyleSelector(style, onStyleChange, extrasVisible, { extrasVisible = !extrasVisible },
-                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it })
+                            motionEnabled, { stageMotion = !stageMotion }, { settingsOpen = it },
+                            glyphPreset, { glyphPreset = it })
                     }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -255,7 +300,8 @@ private fun StageHeader(style: ImmersiveStageStyle, chromeVisible: Boolean, onEx
 
 @Composable
 private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveStageStyle) -> Unit,
-    extras: Boolean, onExtras: () -> Unit, motion: Boolean, onMotion: () -> Unit, onMenu: (Boolean) -> Unit) {
+    extras: Boolean, onExtras: () -> Unit, motion: Boolean, onMotion: () -> Unit, onMenu: (Boolean) -> Unit,
+    glyphPreset: String, onGlyphPreset: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center) {
@@ -276,9 +322,64 @@ private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveSt
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false; onMenu(false) }) {
                 DropdownMenuItem(text = { Text(if (extras) "隐藏译文与音译" else "显示译文与音译") }, onClick = { onExtras(); menu = false; onMenu(false) })
                 DropdownMenuItem(text = { Text(if (motion) "关闭舞台动效" else "开启舞台动效") }, onClick = { onMotion(); menu = false; onMenu(false) })
+                if (style == ImmersiveStageStyle.Glyph) {
+                    listOf("original" to "原版字境", "focus" to "聚焦歌词", "wide" to "宽屏歌词", "crossed" to "交错歌词",
+                        "classic" to "Classic 经典", "cantus" to "Cantus 逐句", "nimbus" to "Nimbus 浮字").forEach { (id, label) ->
+                        DropdownMenuItem(text = { Text((if (glyphPreset == id) "✓ " else "") + label) },
+                            onClick = { onGlyphPreset(id); menu = false; onMenu(false) })
+                    }
+                }
             }
         }
     }
+}
+
+private val TvLyricPresets = listOf(
+    "original" to "原版字境", "focus" to "聚焦歌词", "wide" to "宽屏歌词",
+    "crossed" to "交错歌词", "classic" to "Classic 经典",
+    "cantus" to "Cantus 逐句", "nimbus" to "Nimbus 浮字",
+)
+
+@Composable
+private fun TvLyricPresetPicker(
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selectedFocus = remember { FocusRequester() }
+    val focusIndex = TvLyricPresets.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择歌词舞台") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvLyricPresets.chunked(3).forEachIndexed { rowIndex, row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEachIndexed { columnIndex, (id, label) ->
+                            var focused by remember { mutableStateOf(false) }
+                            val focus = if (rowIndex * 3 + columnIndex == focusIndex)
+                                Modifier.focusRequester(selectedFocus) else Modifier
+                            FilledTonalButton(
+                                modifier = focus.weight(1f).heightIn(min = 64.dp)
+                                    .onFocusChanged { focused = it.isFocused }
+                                    .border(
+                                        width = if (focused) 2.dp else 0.dp,
+                                        color = if (focused) Color.White else Color.Transparent,
+                                        shape = RoundedCornerShape(16.dp),
+                                    ),
+                                onClick = { onSelect(id) },
+                            ) {
+                                Text((if (selected == id) "✓ " else "") + label,
+                                    maxLines = 2, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+    LaunchedEffect(Unit) { selectedFocus.requestFocus() }
 }
 
 @Composable
