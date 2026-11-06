@@ -344,7 +344,8 @@ private fun TvLyricPresetPicker(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val firstFocus = remember { FocusRequester() }
+    val selectedFocus = remember { FocusRequester() }
+    val focusIndex = TvLyricPresets.indexOfFirst { it.first == selected }.coerceAtLeast(0)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("选择歌词舞台") },
@@ -354,8 +355,8 @@ private fun TvLyricPresetPicker(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         row.forEachIndexed { columnIndex, (id, label) ->
                             var focused by remember { mutableStateOf(false) }
-                            val focus = if (rowIndex == 0 && columnIndex == 0)
-                                Modifier.focusRequester(firstFocus) else Modifier
+                            val focus = if (rowIndex * 3 + columnIndex == focusIndex)
+                                Modifier.focusRequester(selectedFocus) else Modifier
                             FilledTonalButton(
                                 modifier = focus.weight(1f).heightIn(min = 64.dp)
                                     .onFocusChanged { focused = it.isFocused }
@@ -376,7 +377,7 @@ private fun TvLyricPresetPicker(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
-    LaunchedEffect(Unit) { firstFocus.requestFocus() }
+    LaunchedEffect(Unit) { selectedFocus.requestFocus() }
 }
 
 @Composable
