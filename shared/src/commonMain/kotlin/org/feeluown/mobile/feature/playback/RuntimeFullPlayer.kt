@@ -31,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -60,6 +61,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +70,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.Role
@@ -716,7 +720,17 @@ private fun RuntimeQueueList(
     val currentPartIndex = presentation.currentPartIndex
     val currentCount = if (state.queueIndex == 0 && queue.isNotEmpty()) 1 else 0
     val upNextCount = queuePort.displayUpNextCount
-    LazyColumn(modifier = modifier) {
+    val currentRow = state.queueIndex.takeIf { it in queue.indices && !queue[it].isUnavailable }
+    val currentRowFocus = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(currentRow) {
+        if (currentRow != null) {
+            // Section labels also occupy lazy-list slots; scroll to the row before requesting focus.
+            listState.scrollToItem(0)
+            currentRowFocus.requestFocus()
+        }
+    }
+    LazyColumn(modifier = modifier, state = listState) {
         itemsIndexed(queue) { index, track ->
             if (index == 0 && currentCount == 1) {
                 Text(
@@ -753,6 +767,7 @@ private fun RuntimeQueueList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(if (index == currentRow) Modifier.focusRequester(currentRowFocus) else Modifier)
                     .onFocusChanged { rowFocused = it.isFocused }
                     .border(
                         width = if (rowFocused) 2.dp else 0.dp,
