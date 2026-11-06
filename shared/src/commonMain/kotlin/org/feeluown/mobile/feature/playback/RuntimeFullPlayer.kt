@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -739,6 +742,7 @@ private fun RuntimeQueueList(
                     modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
                 )
             }
+            var rowFocused by remember { mutableStateOf(false) }
             val isCurrent = index == state.queueIndex
             val isUnavailable = track.isUnavailable
             val titleColor = when {
@@ -749,6 +753,12 @@ private fun RuntimeQueueList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .onFocusChanged { rowFocused = it.isFocused }
+                    .border(
+                        width = if (rowFocused) 2.dp else 0.dp,
+                        color = if (rowFocused) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                        shape = RoundedCornerShape(12.dp),
+                    )
                     .fuoInteractive()
                     .clickable(
                         enabled = !isUnavailable,
