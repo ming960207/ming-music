@@ -59,7 +59,11 @@ function rebuild() {
   textStage.hidden = !isTextPreset();
   app.canvas.hidden = isTextPreset();
   subtitle.textContent = '';
-  if (isTextPreset()) { renderAt(currentTime); return; }
+  if (isTextPreset()) {
+    status.hidden = scene.lines.length > 0;
+    if (!scene.lines.length) status.textContent = '聆听此刻';
+    renderAt(currentTime); return;
+  }
   if (!scene.lines.length) { status.textContent = '聆听此刻'; status.hidden = false; app.render(); return; }
   status.hidden = true;
   const isFocus = preset === 'focus';
@@ -83,7 +87,7 @@ function renderTextStage(time: number) {
   if (index === activeTextLine) return;
   activeTextLine = index;
   textStage.replaceChildren();
-  textStage.className = 'text-stage mode-' + preset;
+  textStage.className = 'text-stage mode-' + preset + (scene.motion ? '' : ' motion-off');
   const active = scene.lines[index];
   if (!active) return;
   if (preset === 'cantus') {
