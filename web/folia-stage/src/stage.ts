@@ -16,6 +16,16 @@ let sprites: ReturnType<typeof createLightSprites>;
 let scene: Scene | undefined;
 let baseTime = 0, clockAt = 0, playing = false, frameId = 0, disposed = false;
 let currentTime = 0, width = 1, height = 1;
+// Preserve the current Folia composition by default. TV presets are opt-in.
+type StagePreset = 'original' | 'focus' | 'wide' | 'crossed';
+let preset: StagePreset = 'original';
+const stagePresets: readonly StagePreset[] = ['original', 'focus', 'wide', 'crossed'];
+function setPreset(next: string) {
+  if (!stagePresets.includes(next as StagePreset)) throw new Error('Unknown stage preset: ' + next);
+  if (preset === next) return;
+  preset = next as StagePreset;
+  rebuild();
+}
 
 function native(action: string, positionMs?: number) {
   const bridge = (window as any).kmpJsBridge;
@@ -34,6 +44,8 @@ function typographyOf(index: number): WindowTypography {
   // Folia's own three layouts: current phrase stays ordered; neighboring lines occupy bounded slots.
   // Vertical composition is reserved for CJK phrases in a tall viewport.
   if (height > width * 1.1 && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text) && index % 3 === 1) return 'vertical';
+  if (preset === 'crossed') return 'crossed';
+  if (preset === 'focus' || preset === 'wide') return 'horizontal';
   return index % 3 === 2 ? 'crossed' : 'horizontal';
 }
 function rebuild() {
@@ -42,12 +54,15 @@ function rebuild() {
   subtitle.textContent = '';
   if (!scene.lines.length) { status.textContent = '聆听此刻'; status.hidden = false; app.render(); return; }
   status.hidden = true;
+  const isFocus = preset === 'focus';
+  const isWide = preset === 'wide';
   lyric = createLyricWindow(pixi, {
     width, height, lines: scene.lines, font: '"Noto Serif CJK SC", "Songti SC", "Noto Serif", serif', weight: 600,
     resolution: Math.min(window.devicePixelRatio || 1, 2),
-    region: { cx: width / height * 0.5, cy: 0.44, w: width / height * 0.76, h: 0.58 },
+    region: { cx: width / height * 0.5, cy: isFocus ? 0.5 : 0.44,
+      w: width / height * (isWide ? 0.92 : isFocus ? 0.65 : 0.76), h: isFocus ? 0.43 : 0.58 },
     heroPx: Math.min(width * 0.12, height * 0.095, 76) * scene.fontScale,
-    neighbors: 2, typography: 'horizontal', typographyOf, seed: scene.seed,
+    neighbors: isFocus ? 1 : 2, typography: 'horizontal', typographyOf, seed: scene.seed,
     decay: { strength: scene.motion ? 0.12 : 0, delay: 2.4 },
     drift: scene.motion ? 0.3 : 0, alwaysFly: scene.motion, letterSpacing: 0.025, sprites,
   });
@@ -108,6 +123,9 @@ async function boot() {
     sprites = createLightSprites(pixi);
     document.body.prepend(app.canvas);
     app.canvas.setAttribute('aria-label', 'Folia 逐字歌词舞台');
+    app.canvas.tabIndex = -1;
+    app.canvas.style.outline = 'none';
+    app.canvas.style.border = '0';
     app.canvas.addEventListener('click', event => {
       const rect = app.canvas.getBoundingClientRect();
       const x = (event.clientX - rect.left) * width / rect.width;
@@ -122,6 +140,7 @@ async function boot() {
     });
     (window as any).MingFoliaStage = {
       setScene(value: Scene) { if (disposed) return; scene = value; rebuild(); }, updateClock,
+      setPreset, getPreset() { return preset; }, presets: stagePresets,
       renderAt, anchors, destroy, upstreamCommit: 'ced47852c64c2709faebe0190d430c3ab75ca2a4',
     };
     addEventListener('resize', resize); document.addEventListener('visibilitychange', visibility);
