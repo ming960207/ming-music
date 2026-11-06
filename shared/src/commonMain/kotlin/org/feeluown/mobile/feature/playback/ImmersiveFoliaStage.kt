@@ -93,12 +93,14 @@ internal fun ImmersiveGlyphStage(
             motion, extras))
     }
     val ready = !webState.isLoading && webState.pageTitle == "ming-folia-ready"
-    LaunchedEffect(ready, sceneScript, preset) {
+    LaunchedEffect(ready, sceneScript) {
         if (ready) {
             navigator.evaluateJavaScript(sceneScript)
-            navigator.evaluateJavaScript("window.MingFoliaStage.setPreset('$preset');")
             navigator.evaluateJavaScript("window.MingFoliaStage.updateClock(${position.value.coerceAtLeast(0)},$playing);")
         }
+    }
+    LaunchedEffect(ready, sceneScript, preset) {
+        if (ready) navigator.evaluateJavaScript("window.MingFoliaStage.setPreset('$preset');")
     }
     LaunchedEffect(ready, position, playing) {
         if (ready) snapshotFlow { position.value }.sample(50).collect { time ->
