@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
@@ -84,6 +85,9 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
@@ -146,7 +150,29 @@ internal fun ImmersivePlayerScreen(
     )
     MaterialTheme(colorScheme = colors) {
         CompositionLocalProvider(LocalContentColor provides Color.White) {
-        Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
+        Box(Modifier.fillMaxSize()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || settingsOpen) return@onPreviewKeyEvent false
+                // Keep DPAD navigation owned by focused controls whenever chrome is visible.
+                if (chromeVisible) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionCenter, Key.Enter -> {
+                        chromeVisible = true
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        onOpenQueue()
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        chromeVisible = true
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable()
+            .pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
             if (style.foliaStyle != null) FoliaMovingBackdrop(image, accent, style.foliaStyle, clock)
             else ImmersiveStageBackdrop(image, accent, clock, style)
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
