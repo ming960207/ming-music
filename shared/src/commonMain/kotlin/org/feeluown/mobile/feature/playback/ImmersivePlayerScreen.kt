@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -75,6 +76,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -130,10 +133,11 @@ internal fun ImmersivePlayerScreen(
     var stageMotion by rememberSaveable { mutableStateOf(true) }
     var glyphPreset by rememberSaveable { mutableStateOf("original") }
     var settingsOpen by remember { mutableStateOf(false) }
+    var tvPresetPickerOpen by remember { mutableStateOf(false) }
     var interacting by remember { mutableStateOf(false) }
-    LaunchedEffect(chromeVisible, settingsOpen, interacting, style, state.status, state.currentTrack?.id) {
+    LaunchedEffect(chromeVisible, settingsOpen, tvPresetPickerOpen, interacting, style, state.status, state.currentTrack?.id) {
         if (!chromeVisible) interacting = false
-        if (chromeVisible && !settingsOpen && !interacting && state.status == PlayerStatus.Playing) {
+        if (chromeVisible && !settingsOpen && !tvPresetPickerOpen && !interacting && state.status == PlayerStatus.Playing) {
             delay(5_000)
             chromeVisible = false
         }
@@ -152,7 +156,7 @@ internal fun ImmersivePlayerScreen(
         CompositionLocalProvider(LocalContentColor provides Color.White) {
         Box(Modifier.fillMaxSize()
             .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown || settingsOpen) return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyDown || settingsOpen || tvPresetPickerOpen) return@onPreviewKeyEvent false
                 // Keep DPAD navigation owned by focused controls whenever chrome is visible.
                 if (chromeVisible) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -165,7 +169,11 @@ internal fun ImmersivePlayerScreen(
                         true
                     }
                     Key.DirectionDown -> {
-                        chromeVisible = true
+                        if (style == ImmersiveStageStyle.Glyph) {
+                            tvPresetPickerOpen = true
+                        } else {
+                            chromeVisible = true
+                        }
                         true
                     }
                     else -> false
@@ -173,6 +181,9 @@ internal fun ImmersivePlayerScreen(
             }
             .focusable()
             .pointerInput(Unit) { detectTapGestures { chromeVisible = !chromeVisible } }) {
+            if (tvPresetPickerOpen) TvLyricPresetPicker(glyphPreset,
+                onSelect = { glyphPreset = it; tvPresetPickerOpen = false; chromeVisible = false },
+                onDismiss = { tvPresetPickerOpen = false })
             if (style.foliaStyle != null) FoliaMovingBackdrop(image, accent, style.foliaStyle, clock)
             else ImmersiveStageBackdrop(image, accent, clock, style)
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -317,6 +328,46 @@ private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveSt
             }
         }
     }
+}
+
+private val TvLyricPresets = listOf(
+    "original" to "原版字境", "focus" to "聚焦歌词", "wide" to "宽屏歌词",
+    "crossed" to "交错歌词", "classic" to "Classic 经典",
+    "cantus" to "Cantus 逐句", "nimbus" to "Nimbus 浮字",
+)
+
+@Composable
+private fun TvLyricPresetPicker(
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val firstFocus = remember { FocusRequester() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择歌词舞台") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvLyricPresets.chunked(3).forEachIndexed { rowIndex, row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        row.forEachIndexed { columnIndex, (id, label) ->
+                            val focus = if (rowIndex == 0 && columnIndex == 0)
+                                Modifier.focusRequester(firstFocus) else Modifier
+                            FilledTonalButton(
+                                modifier = focus.weight(1f).heightIn(min = 64.dp),
+                                onClick = { onSelect(id) },
+                            ) {
+                                Text((if (selected == id) "✓ " else "") + label,
+                                    maxLines = 2, textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+    LaunchedEffect(Unit) { firstFocus.requestFocus() }
 }
 
 @Composable
