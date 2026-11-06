@@ -27,3 +27,14 @@ test('the shipped stage is offline and includes its copyright and source offer',
   const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
   assert.doesNotThrow(() => new Script(script), 'Bundling must preserve literal JavaScript replacement patterns');
 });
+
+test('TV layout presets preserve the original Folia renderer and remove canvas focus outline', async () => {
+  const stage = await readFile('src/stage.ts', 'utf8');
+  const html = await readFile('src/index.html', 'utf8');
+  assert.match(stage, /type StagePreset = 'original' \| 'focus' \| 'wide' \| 'crossed'/);
+  assert.match(stage, /let preset: StagePreset = 'original'/);
+  assert.match(stage, /setPreset, getPreset\(\)/);
+  assert.match(stage, /createLyricWindow\(pixi,/);
+  assert.match(stage, /app\.canvas\.tabIndex = -1/);
+  assert.match(html, /canvas:focus,canvas:focus-visible\{outline:none;box-shadow:none\}/);
+});
