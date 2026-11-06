@@ -281,7 +281,8 @@ private fun StageStyleSelector(style: ImmersiveStageStyle, onStyle: (ImmersiveSt
                 DropdownMenuItem(text = { Text(if (extras) "隐藏译文与音译" else "显示译文与音译") }, onClick = { onExtras(); menu = false; onMenu(false) })
                 DropdownMenuItem(text = { Text(if (motion) "关闭舞台动效" else "开启舞台动效") }, onClick = { onMotion(); menu = false; onMenu(false) })
                 if (style == ImmersiveStageStyle.Glyph) {
-                    listOf("original" to "原版字境", "focus" to "聚焦歌词", "wide" to "宽屏歌词", "crossed" to "交错歌词").forEach { (id, label) ->
+                    listOf("original" to "原版字境", "focus" to "聚焦歌词", "wide" to "宽屏歌词", "crossed" to "交错歌词",
+                        "classic" to "Classic 经典", "cantus" to "Cantus 逐句", "nimbus" to "Nimbus 浮字").forEach { (id, label) ->
                         DropdownMenuItem(text = { Text((if (glyphPreset == id) "✓ " else "") + label) },
                             onClick = { onGlyphPreset(id); menu = false; onMenu(false) })
                     }
