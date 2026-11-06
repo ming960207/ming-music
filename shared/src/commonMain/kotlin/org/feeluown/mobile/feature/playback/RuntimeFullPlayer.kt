@@ -725,8 +725,8 @@ private fun RuntimeQueueList(
     val listState = rememberLazyListState()
     LaunchedEffect(currentRow) {
         if (currentRow != null) {
-            // Section labels also occupy lazy-list slots; scroll to the row before requesting focus.
-            listState.scrollToItem(0)
+            // The section headings are emitted within each itemsIndexed item, not separate slots.
+            listState.scrollToItem(currentRow)
             currentRowFocus.requestFocus()
         }
     }
